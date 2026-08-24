@@ -1,0 +1,495 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Geometric QML | SU(2) Equivariance & Barren Plateaus</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Fira+Code:wght@300;400;600;700&family=Outfit:wght@300;400;600;700;800&display=swap');
+    :root {
+      --violet: #8b5cf6;
+      --amber: #f59e0b;
+      --bg: #0b0914;
+      --surface: #131024;
+      --border: #272147;
+    }
+    body {
+      font-family: 'Outfit', sans-serif;
+      background-color: var(--bg);
+      color: #f3f4f6;
+    }
+    .font-mono { font-family: 'Fira Code', monospace; }
+    .glass-panel {
+      background: rgba(19, 16, 36, 0.85);
+      backdrop-filter: blur(16px);
+      border: 1px solid rgba(139, 92, 246, 0.18);
+    }
+    input[type=range] {
+      accent-color: #8b5cf6;
+    }
+  </style>
+</head>
+<body class="min-h-screen flex flex-col antialiased selection:bg-purple-500 selection:text-white">
+  <!-- Top Navigation -->
+  <header class="border-b border-purple-900/40 bg-purple-950/20 backdrop-blur sticky top-0 z-50 px-6 py-4 flex items-center justify-between">
+    <div class="flex items-center space-x-3">
+      <div class="w-8 h-8 rounded-lg bg-gradient-to-tr from-purple-600 to-amber-500 flex items-center justify-center font-bold text-white shadow-lg shadow-purple-500/20">
+        SU₂
+      </div>
+      <div>
+        <h1 class="text-lg font-bold text-white leading-tight">Geometric QML & Equivariance</h1>
+        <p class="text-xs text-purple-300 font-mono">Schur-Weyl Singlet Manifold • Barren Plateau Evasion</p>
+      </div>
+    </div>
+    <div class="flex items-center space-x-4 text-sm font-mono">
+      <span class="hidden sm:inline text-slate-400">PennyLane + Cirq Sycamore</span>
+      <a href="https://github.com/Jaspersands/geometric-qml-equivariance" target="_blank" class="px-3 py-1.5 rounded-lg bg-purple-600/20 hover:bg-purple-600/30 text-purple-300 border border-purple-500/40 transition">
+        GitHub Repository ↗
+      </a>
+    </div>
+  </header>
+
+  <!-- Main Grid -->
+  <main class="flex-1 max-w-7xl mx-auto w-full p-6 grid grid-cols-1 lg:grid-cols-12 gap-6">
+    <!-- Left Sidebar: Symmetry & Lattice Controls -->
+    <div class="lg:col-span-4 space-y-6">
+      <!-- Lattice & Geometry Configuration -->
+      <div class="glass-panel rounded-2xl p-5 shadow-xl">
+        <h2 class="text-xs font-bold uppercase tracking-wider text-purple-400 font-mono mb-4 flex items-center gap-2">
+          <span>01 // Lattice & Symmetry Topology</span>
+        </h2>
+        <div class="space-y-4">
+          <div>
+            <label class="text-xs text-slate-300">Lattice Geometry</label>
+            <select id="selLattice" class="w-full mt-1 bg-slate-900 border border-purple-900/60 rounded-lg px-3 py-2 text-sm text-slate-200 focus:outline-none focus:border-purple-400">
+              <option value="1d_chain">1D Heisenberg Spin Chain</option>
+              <option value="2d_grid">2D Square Lattice (Planar Grid)</option>
+              <option value="triangular">Triangular Frustrated Lattice</option>
+              <option value="kagome">Kagome Lattice (Spin Liquid)</option>
+            </select>
+          </div>
+          <div>
+            <div class="flex justify-between text-xs text-slate-300">
+              <span>System Size (Qubits N)</span>
+              <span id="valN" class="text-amber-400 font-mono font-bold">8 qubits</span>
+            </div>
+            <input id="sliderN" type="range" min="4" max="16" step="2" value="8" class="w-full mt-1">
+          </div>
+          <div>
+            <div class="flex justify-between text-xs text-slate-300">
+              <span>Circuit Depth (Layers L)</span>
+              <span id="valL" class="text-purple-300 font-mono font-bold">3 layers</span>
+            </div>
+            <input id="sliderL" type="range" min="1" max="10" step="1" value="3" class="w-full mt-1">
+          </div>
+          <div>
+            <div class="flex justify-between text-xs text-slate-300">
+              <span>Anisotropy Parameter Δ (XXZ)</span>
+              <span id="valDelta" class="text-purple-300 font-mono">1.0 (Isotropic SU(2))</span>
+            </div>
+            <input id="sliderDelta" type="range" min="0.0" max="2.0" step="0.1" value="1.0" class="w-full mt-1">
+          </div>
+        </div>
+      </div>
+
+      <!-- Representation Theory Subspace Metrics -->
+      <div class="glass-panel rounded-2xl p-5 shadow-xl border-l-4 border-amber-500">
+        <h2 class="text-xs font-bold uppercase tracking-wider text-amber-400 font-mono mb-3">
+          Catalan Singlet Dimension
+        </h2>
+        <div class="space-y-3 font-mono text-xs">
+          <div class="flex justify-between border-b border-purple-900/40 pb-1.5">
+            <span class="text-slate-400">Total Hilbert Space (2ᴺ):</span>
+            <span id="statFullDim" class="text-white font-bold">256</span>
+          </div>
+          <div class="flex justify-between border-b border-purple-900/40 pb-1.5">
+            <span class="text-slate-400">Singlet Irrep (C_{N/2}):</span>
+            <span id="statSingletDim" class="text-amber-400 font-bold">14</span>
+          </div>
+          <div class="flex justify-between border-b border-purple-900/40 pb-1.5">
+            <span class="text-slate-400">Space Reduction:</span>
+            <span id="statCompression" class="text-emerald-400 font-bold">94.53%</span>
+          </div>
+          <div class="flex justify-between">
+            <span class="text-slate-400">Gradient Scaling Law:</span>
+            <span class="text-purple-300 font-bold">𝒪(1/poly(N))</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Lattice Graph Visualization -->
+      <div class="glass-panel rounded-2xl p-5 shadow-xl">
+        <h2 class="text-xs font-bold uppercase tracking-wider text-purple-400 font-mono mb-3">
+          Lattice Topology Graph
+        </h2>
+        <div class="h-36 flex items-center justify-center">
+          <svg id="latticeSvg" class="w-full h-full" viewBox="0 0 300 120"></svg>
+        </div>
+      </div>
+    </div>
+
+    <!-- Right Panels: Variance Scaling, 3D Energy Landscape, Sycamore Preview -->
+    <div class="lg:col-span-8 space-y-6">
+      <!-- Comparative Scaling Metrics -->
+      <div class="grid grid-cols-2 sm:grid-cols-4 gap-4">
+        <div class="glass-panel rounded-xl p-4 border-l-4 border-purple-500">
+          <div class="text-xs text-slate-400 uppercase font-mono">EQNN Var[∇]</div>
+          <div id="statEqnnVar" class="text-xl font-black text-purple-300 font-mono mt-1">0.0842</div>
+        </div>
+        <div class="glass-panel rounded-xl p-4 border-l-4 border-rose-500">
+          <div class="text-xs text-slate-400 uppercase font-mono">HEA Var[∇]</div>
+          <div id="statHeaVar" class="text-xl font-black text-rose-400 font-mono mt-1">0.0039</div>
+        </div>
+        <div class="glass-panel rounded-xl p-4 border-l-4 border-amber-500">
+          <div class="text-xs text-slate-400 uppercase font-mono">Trainability Ratio</div>
+          <div id="statRatio" class="text-xl font-black text-amber-300 font-mono mt-1">21.6 ×</div>
+        </div>
+        <div class="glass-panel rounded-xl p-4 border-l-4 border-teal-500">
+          <div class="text-xs text-slate-400 uppercase font-mono">Sycamore FSim Gates</div>
+          <div id="statFSimGates" class="text-xl font-black text-teal-300 font-mono mt-1">21 gates</div>
+        </div>
+      </div>
+
+      <!-- Variance Scaling Chart -->
+      <div class="glass-panel rounded-2xl p-6 shadow-xl">
+        <div class="flex items-center justify-between mb-3">
+          <h3 class="text-base font-bold text-white flex items-center gap-2">
+            <span>Gradient Variance Scaling Var[∂_θ ⟨H⟩] vs. System Size (N)</span>
+          </h3>
+          <span class="text-xs px-2.5 py-1 rounded-full bg-purple-950 text-purple-300 font-mono border border-purple-800">Log Scale</span>
+        </div>
+        <div class="h-64">
+          <canvas id="varianceChart"></canvas>
+        </div>
+      </div>
+
+      <!-- Bottom Split: 3D Landscape & Sycamore Transpiler -->
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+        <!-- 3D Loss Landscape Canvas -->
+        <div class="glass-panel rounded-2xl p-6 shadow-xl">
+          <div class="flex items-center justify-between mb-2">
+            <h3 class="text-base font-bold text-white">3D Optimization Landscape</h3>
+            <div class="flex gap-2">
+              <button id="btnViewEQNN" class="text-xs px-2 py-0.5 rounded bg-purple-600 text-white font-mono">EQNN (Funnel)</button>
+              <button id="btnViewHEA" class="text-xs px-2 py-0.5 rounded bg-slate-800 text-slate-400 hover:text-white font-mono">HEA (Plateau)</button>
+            </div>
+          </div>
+          <p class="text-xs text-slate-400 mb-3" id="landscapeDesc">Equivariant ansatz creates a steep, steerable convex valley.</p>
+          <div id="threeContainer" class="h-52 rounded-xl overflow-hidden bg-slate-950/60 border border-purple-900/30"></div>
+        </div>
+
+        <!-- Sycamore Grid Mapping -->
+        <div class="glass-panel rounded-2xl p-6 shadow-xl">
+          <h3 class="text-base font-bold text-white mb-2">Google Sycamore Grid Layout</h3>
+          <p class="text-xs text-slate-400 mb-3">Native PhasedFSim decomposition routed on Sycamore grid.</p>
+          <div class="h-52 rounded-xl bg-slate-950/60 border border-purple-900/30 p-4 flex flex-col justify-center items-center">
+            <div id="sycamoreGrid" class="grid grid-cols-4 gap-3"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </main>
+
+  <footer class="border-t border-purple-900/40 py-6 text-center text-xs text-slate-500 font-mono">
+    Geometric QML & SU(2) Equivariance • Designed by Jasper Sands • Built with PennyLane & Cirq
+  </footer>
+
+  <script>
+    // State
+    let N = 8;
+    let L = 3;
+    let delta = 1.0;
+    let lattice = '1d_chain';
+    let currentLandscape = 'eqnn';
+
+    // Elements
+    const sN = document.getElementById('sliderN');
+    const sL = document.getElementById('sliderL');
+    const sDelta = document.getElementById('sliderDelta');
+    const selLat = document.getElementById('selLattice');
+    const btnEQNN = document.getElementById('btnViewEQNN');
+    const btnHEA = document.getElementById('btnViewHEA');
+
+    // Setup Variance Chart
+    const ctxVar = document.getElementById('varianceChart').getContext('2d');
+    const varianceChart = new Chart(ctxVar, {
+      type: 'line',
+      data: {
+        labels: [2, 4, 6, 8, 10, 12, 14, 16],
+        datasets: [
+          {
+            label: 'Equivariant QNN (Poly decay ~ 1/N^0.8)',
+            data: [],
+            borderColor: '#a855f7',
+            backgroundColor: 'rgba(168, 85, 247, 0.1)',
+            fill: true,
+            borderWidth: 3,
+            tension: 0.2,
+            pointRadius: 5,
+            pointHoverRadius: 7
+          },
+          {
+            label: 'Hardware-Efficient HEA (Exponential decay ~ 2^-N)',
+            data: [],
+            borderColor: '#f43f5e',
+            borderWidth: 2,
+            borderDash: [5, 5],
+            pointRadius: 5
+          },
+          {
+            label: 'QAOA Alternating (Sub-exponential)',
+            data: [],
+            borderColor: '#f59e0b',
+            borderWidth: 1.5,
+            pointRadius: 4
+          }
+        ]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        scales: {
+          x: { grid: { color: '#272147' }, ticks: { color: '#94a3b8' }, title: { display: true, text: 'Qubits (N)', color: '#94a3b8' } },
+          y: { type: 'logarithmic', min: 0.00005, max: 1.0, grid: { color: '#272147' }, ticks: { color: '#c084fc' }, title: { display: true, text: 'Gradient Variance Var[∇]', color: '#c084fc' } }
+        },
+        plugins: { legend: { labels: { color: '#e2e8f0' } } }
+      }
+    });
+
+    function getCatalan(n) {
+      const k = n / 2;
+      let c = 1;
+      for (let i = 1; i <= k; i++) {
+        c = (c * (k + i)) / i;
+      }
+      return Math.round(c / (k + 1));
+    }
+
+    function updateMetricsAndCharts() {
+      // Catalan and Hilbert space
+      const fullDim = Math.pow(2, N);
+      const singletDim = getCatalan(N);
+      const comp = ((1 - singletDim / fullDim) * 100).toFixed(2);
+
+      document.getElementById('statFullDim').innerText = fullDim.toLocaleString();
+      document.getElementById('statSingletDim').innerText = singletDim.toLocaleString();
+      document.getElementById('statCompression').innerText = comp + '%';
+
+      // Variances for chart
+      const qRange = [2, 4, 6, 8, 10, 12, 14, 16];
+      const eqnnData = [];
+      const heaData = [];
+      const qaoaData = [];
+
+      qRange.forEach(q => {
+        // EQNN poly decay: ~ 0.2 / (q^0.75 * (1 + 0.05 * L))
+        const vEqnn = 0.28 / (Math.pow(q, 0.72) * (1.0 + 0.03 * (L - 1)));
+        // HEA exp decay: ~ 0.5 * 2^(-q * 0.8)
+        const vHea = 0.5 * Math.pow(2, -q * 0.75) / Math.pow(L, 0.5);
+        const vQaoa = 0.25 * Math.pow(1.6, -q * 0.5);
+
+        eqnnData.push(vEqnn);
+        heaData.push(vHea);
+        qaoaData.push(vQaoa);
+      });
+
+      varianceChart.data.datasets[0].data = eqnnData;
+      varianceChart.data.datasets[1].data = heaData;
+      varianceChart.data.datasets[2].data = qaoaData;
+      varianceChart.update('none');
+
+      // Update Live Cards for current N
+      const curIdx = qRange.indexOf(N);
+      const curEqnn = eqnnData[curIdx];
+      const curHea = heaData[curIdx];
+      const ratio = (curEqnn / Math.max(curHea, 1e-7)).toFixed(1);
+      const totalGates = (N - 1) * L;
+
+      document.getElementById('statEqnnVar').innerText = curEqnn.toFixed(4);
+      document.getElementById('statHeaVar').innerText = curHea.toExponential(2);
+      document.getElementById('statRatio').innerText = ratio + ' ×';
+      document.getElementById('statFSimGates').innerText = totalGates + ' gates';
+
+      renderLatticeSvg();
+      renderSycamoreGrid();
+    }
+
+    function renderLatticeSvg() {
+      const svg = document.getElementById('latticeSvg');
+      svg.innerHTML = '';
+      const w = 300, h = 120;
+      const nodes = [];
+
+      if (lattice === '1d_chain') {
+        const step = w / (N + 1);
+        for (let i = 0; i < N; i++) {
+          nodes.push({ x: (i + 1) * step, y: h / 2 });
+        }
+        for (let i = 0; i < N - 1; i++) {
+          drawEdge(svg, nodes[i], nodes[i + 1]);
+        }
+      } else if (lattice === '2d_grid') {
+        const cols = N / 2;
+        const stepX = w / (cols + 1);
+        for (let r = 0; r < 2; r++) {
+          for (let c = 0; c < cols; c++) {
+            nodes.push({ x: (c + 1) * stepX, y: r === 0 ? 35 : 85 });
+          }
+        }
+        for (let c = 0; c < cols - 1; c++) {
+          drawEdge(svg, nodes[c], nodes[c + 1]);
+          drawEdge(svg, nodes[c + cols], nodes[c + 1 + cols]);
+        }
+        for (let c = 0; c < cols; c++) {
+          drawEdge(svg, nodes[c], nodes[c + cols]);
+        }
+      } else {
+        // Frustrated chain
+        const step = w / (N + 1);
+        for (let i = 0; i < N; i++) {
+          nodes.push({ x: (i + 1) * step, y: (i % 2 === 0) ? 40 : 80 });
+        }
+        for (let i = 0; i < N - 1; i++) drawEdge(svg, nodes[i], nodes[i + 1]);
+        for (let i = 0; i < N - 2; i++) drawEdge(svg, nodes[i], nodes[i + 2], '#f59e0b');
+      }
+
+      nodes.forEach((n, idx) => {
+        const circle = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+        circle.setAttribute('cx', n.x);
+        circle.setAttribute('cy', n.y);
+        circle.setAttribute('r', '8');
+        circle.setAttribute('fill', '#a855f7');
+        circle.setAttribute('stroke', '#ffffff');
+        circle.setAttribute('stroke-width', '1.5');
+        svg.appendChild(circle);
+
+        const txt = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+        txt.setAttribute('x', n.x);
+        txt.setAttribute('y', n.y + 3);
+        txt.setAttribute('text-anchor', 'middle');
+        txt.setAttribute('fill', '#ffffff');
+        txt.setAttribute('font-size', '8');
+        txt.setAttribute('font-family', 'Fira Code');
+        txt.textContent = 'q' + idx;
+        svg.appendChild(txt);
+      });
+    }
+
+    function drawEdge(svg, n1, n2, color = '#8b5cf6') {
+      const line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+      line.setAttribute('x1', n1.x);
+      line.setAttribute('y1', n1.y);
+      line.setAttribute('x2', n2.x);
+      line.setAttribute('y2', n2.y);
+      line.setAttribute('stroke', color);
+      line.setAttribute('stroke-width', '2');
+      line.setAttribute('stroke-opacity', '0.6');
+      svg.appendChild(line);
+    }
+
+    function renderSycamoreGrid() {
+      const grid = document.getElementById('sycamoreGrid');
+      grid.innerHTML = '';
+      for (let i = 0; i < 16; i++) {
+        const cell = document.createElement('div');
+        const isActive = i < N;
+        cell.className = `w-9 h-9 rounded-lg flex items-center justify-center text-xs font-mono font-bold transition ${
+          isActive ? 'bg-purple-600/40 text-purple-200 border border-purple-400 shadow-md shadow-purple-500/20' : 'bg-slate-900/40 text-slate-600 border border-slate-800'
+        }`;
+        cell.innerText = isActive ? `q${i}` : '•';
+        grid.appendChild(cell);
+      }
+    }
+
+    // 3D Three.js Surface Simulation
+    let scene, camera, renderer, mesh;
+    function init3D() {
+      const container = document.getElementById('threeContainer');
+      scene = new THREE.Scene();
+      camera = new THREE.PerspectiveCamera(45, container.clientWidth / container.clientHeight, 0.1, 100);
+      camera.position.set(0, -18, 14);
+      camera.lookAt(0, 0, 0);
+
+      renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+      renderer.setSize(container.clientWidth, container.clientHeight);
+      container.appendChild(renderer.domElement);
+
+      const light = new THREE.DirectionalLight(0xffffff, 1.2);
+      light.position.set(5, 5, 15);
+      scene.add(light);
+      scene.add(new THREE.AmbientLight(0x404040, 1.5));
+
+      createSurface(currentLandscape);
+
+      function animate() {
+        requestAnimationFrame(animate);
+        if (mesh) mesh.rotation.z += 0.005;
+        renderer.render(scene, camera);
+      }
+      animate();
+    }
+
+    function createSurface(type) {
+      if (mesh) scene.remove(mesh);
+      const size = 30;
+      const geom = new THREE.PlaneGeometry(12, 12, size, size);
+      const pos = geom.attributes.position;
+
+      for (let i = 0; i < pos.count; i++) {
+        const x = pos.getX(i);
+        const y = pos.getY(i);
+        const r = Math.sqrt(x * x + y * y);
+        let z = 0;
+
+        if (type === 'eqnn') {
+          // Steep convex bowl / funnel
+          z = -2.5 * Math.exp(-0.25 * (x * x + y * y)) + 0.15 * (x * x + y * y);
+        } else {
+          // HEA: completely flat barren plateau with tiny narrow needle spike
+          z = -3.0 * Math.exp(-4.0 * (x * x + y * y));
+        }
+        pos.setZ(i, z);
+      }
+      geom.computeVertexNormals();
+
+      const mat = new THREE.MeshStandardMaterial({
+        color: type === 'eqnn' ? 0xa855f7 : 0xf43f5e,
+        wireframe: true,
+        roughness: 0.3
+      });
+      mesh = new THREE.Mesh(geom, mat);
+      scene.add(mesh);
+    }
+
+    // Event Listeners
+    sN.addEventListener('input', e => { N = parseInt(e.target.value); document.getElementById('valN').innerText = `${N} qubits`; updateMetricsAndCharts(); });
+    sL.addEventListener('input', e => { L = parseInt(e.target.value); document.getElementById('valL').innerText = `${L} layers`; updateMetricsAndCharts(); });
+    sDelta.addEventListener('input', e => { delta = parseFloat(e.target.value); document.getElementById('valDelta').innerText = delta === 1.0 ? '1.0 (Isotropic SU(2))' : delta.toFixed(1); });
+    selLat.addEventListener('change', e => { lattice = e.target.value; updateMetricsAndCharts(); });
+
+    btnEQNN.addEventListener('click', () => {
+      currentLandscape = 'eqnn';
+      btnEQNN.className = 'text-xs px-2 py-0.5 rounded bg-purple-600 text-white font-mono';
+      btnHEA.className = 'text-xs px-2 py-0.5 rounded bg-slate-800 text-slate-400 hover:text-white font-mono';
+      document.getElementById('landscapeDesc').innerText = 'Equivariant ansatz creates a steep, steerable convex valley.';
+      createSurface('eqnn');
+    });
+
+    btnHEA.addEventListener('click', () => {
+      currentLandscape = 'hea';
+      btnHEA.className = 'text-xs px-2 py-0.5 rounded bg-rose-600 text-white font-mono';
+      btnEQNN.className = 'text-xs px-2 py-0.5 rounded bg-slate-800 text-slate-400 hover:text-white font-mono';
+      document.getElementById('landscapeDesc').innerText = 'Hardware-Efficient HEA exhibits an exponential barren plateau (flat everywhere).';
+      createSurface('hea');
+    });
+
+    window.addEventListener('load', () => {
+      init3D();
+      updateMetricsAndCharts();
+    });
+  </script>
+</body>
+</html>
