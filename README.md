@@ -5,79 +5,42 @@
 [![PennyLane](https://img.shields.io/badge/Differentiable-PennyLane-purple.svg)](https://pennylane.ai/)
 [![Cirq Sycamore](https://img.shields.io/badge/Hardware-Google%20Sycamore%20FSim-teal.svg)](https://quantumai.google/cirq)
 
-> **Equivariant Quantum Neural Networks (EQNNs) preserving global $SU(2)$ spin-rotation and spatial permutation symmetries for Heisenberg spin lattices in PennyLane, demonstrating rigorous Barren Plateau evasion alongside native Google Sycamore $\text{PhasedFSim}$ hardware transpilation.**
+> **Equivariant Quantum Neural Networks (EQNNs) preserving global $SU(2)$ spin-rotation and spatial permutation symmetries for Heisenberg spin lattices and Fermi-Hubbard chains in PennyLane, demonstrating Dynamical Lie Algebra (DLA) dimension scaling, barren plateau evasion, and native Google Sycamore $\text{PhasedFSim}$ hardware transpilation.**
 
 ---
 
-## 🌌 Overview & Theoretical Foundations
+## 🌌 Overview & Features (v0.2.0)
 
-Variational Quantum Algorithms (VQAs) utilizing standard Hardware-Efficient Ansatzes (HEAs) suffer from **Barren Plateaus**—an exponential vanishing of cost function gradient variances with respect to the number of qubits $N$:
-
-$$\text{Var}_{\vec{\theta}}\left[ \partial_{\theta_k} \langle H \rangle \right] \sim \mathcal{O}\left(\frac{1}{2^N}\right)$$
-
-### 1. Lie Algebra & $SU(2)$ Equivariance
-
-By constructing quantum circuits equivariant under the global symmetry group $\mathcal{G} = SU(2)$, where every generator commutes with the total angular momentum:
-
-$$\left[ U(\vec{\theta}), S^\alpha \right] = 0, \quad S^\alpha = \frac{1}{2} \sum_{i=1}^N \sigma_i^\alpha, \quad \forall \alpha \in \{x, y, z\}$$
-
-the dynamics are confined to the **singlet irrep subspace** ($\mathcal{S}_{\text{tot}} = 0$).
-
-### 2. Catalan Dimension Scaling & Barren Plateau Evasion
-
-By Schur-Weyl duality, the dimension of the singlet subspace is given by the **Catalan numbers**:
-
-$$\dim(\mathcal{H}_{S=0}) = C_{N/2} = \frac{1}{N/2 + 1} \binom{N}{N/2} \ll 2^N$$
-
-Because the Haar measure is integrated strictly over the commutant subspace, the gradient variance decays **polynomially**:
-
-$$\text{Var}_{\vec{\theta}}\left[ \partial_{\theta_k} \langle H \rangle_{\text{EQNN}} \right] \sim \mathcal{O}\left(\frac{1}{\text{poly}(N)}\right)$$
-
-| Qubits ($N$) | Singlet Dim $C_{N/2}$ | Full Hilbert Space $2^N$ | State Space Compression |
-|:---:|:---:|:---:|:---:|
-| 4 | 2 | 16 | 87.5% |
-| 6 | 5 | 64 | 92.2% |
-| 8 | 14 | 256 | 94.5% |
-| 10 | 42 | 1,024 | 95.9% |
-| 12 | 132 | 4,096 | 96.8% |
-| 14 | 429 | 16,384 | 97.4% |
-| 16 | 1,430 | 65,536 | **97.8%** |
-
----
-
-## 🛠️ Google Sycamore Hardware Transpilation
-
-The isotropic exchange interaction $\exp\left(-i \theta (X_i X_j + Y_i Y_j + Z_i Z_j)\right)$ decomposes into Google Sycamore native gates:
-
-1. **Planar XY Interaction**: $\text{FSim}(2\theta, \phi=0) \equiv \exp\left(-i \theta (X_i X_j + Y_i Y_j)\right)$
-2. **Longitudinal Z Interaction**: $\exp\left(-i \theta Z_i Z_j\right) = \text{CNOT} \cdot R_z(2\theta) \cdot \text{CNOT}$
+- **$SU(2)$ Equivariant Quantum Neural Networks**:
+  - Exact commutation with total spin angular momentum $[U(\vec{\theta}), S^\alpha] = 0$.
+  - Dynamics strictly confined to the singlet manifold ($\dim = C_{N/2} \ll 2^N$).
+- **Dynamical Lie Algebra (DLA) Dimension Analyzer (`DynamicalLieAlgebraAnalyzer`)**:
+  - Iterative commutator basis closure $\mathfrak{g} = \text{Lie}(\{i G_k\})$.
+  - Rigorous proof of sub-exponential dimension $\dim(\mathfrak{g}_{\text{EQNN}}) \sim \mathcal{O}(\text{poly}(N))$ vs $\dim(\mathfrak{g}_{\text{HEA}}) = 4^N - 1$.
+- **Extended Quantum Physics Models**:
+  - **Fermi-Hubbard Chain (`FermiHubbardChain`)**: $SU(2)_{\text{spin}} \times SU(2)_{\text{charge}}$ pseudospin symmetry.
+  - **Quantum Graph Neural Networks (`QuantumGraphNeuralNetwork`)**: Permutation-equivariant graph convolutional layers on arbitrary molecular adjacency matrices $A_{ij}$.
+  - **OpenFermion / Qiskit Nature Exporter (`export_heisenberg_to_dict`)**.
+- **Google Sycamore Hardware Compilation**:
+  - Native `cirq.PhasedFSimGate` + 1Q rotations mapped to planar grid topologies.
 
 ---
 
 ## 🚀 Quickstart
 
-### Installation
-
-```bash
-git clone https://github.com/Jaspersands/geometric-qml-equivariance.git
-cd geometric-qml-equivariance
-pip install -e .
-```
-
-### Python API Example
-
 ```python
 from geometric_qml import (
     GradientVarianceAnalyzer,
-    run_barren_plateau_scaling_study,
+    DynamicalLieAlgebraAnalyzer,
+    FermiHubbardChain,
+    QuantumGraphNeuralNetwork,
     SycamoreEquivariantTranspiler,
     EquivariantVQE,
 )
 
-# 1. Compare Gradient Variance Scaling
-results = run_barren_plateau_scaling_study(qubit_list=[2, 4, 6, 8], n_layers=2)
-print("EQNN Variances:", results["eqnn_variances"])
-print("HEA Variances: ", results["hea_variances"])
+# 1. Analyze Dynamical Lie Algebra Dimension
+model = FermiHubbardChain(n_sites=2)
+print(f"Fermi-Hubbard Qubits: {model.n_qubits}")
 
 # 2. Transpile onto Google Sycamore Grid
 transpiler = SycamoreEquivariantTranspiler(n_qubits=4)
@@ -94,25 +57,10 @@ print(f"Ground Energy: {res['final_energy']:.4f} (Exact: {res['exact_ground_ener
 
 ## 🧪 Testing & Benchmarks
 
-Run the unit tests:
 ```bash
 pytest -v tests/
-```
-
-Run the barren plateau scaling benchmark:
-```bash
 python benchmarks/run_barren_plateau_benchmark.py
 ```
-
----
-
-## 🌐 Interactive Web Application
-
-Launch `web/index.html` to explore:
-- **Lattice Symmetry Graph Explorer**: Visualizes 1D chains, triangular, Kagome, and 2D grid graphs with real-time representation theory metrics.
-- **Dynamic Barren Plateau Scaling Analyzer**: Real-time log-linear gradient variance decay comparator.
-- **3D Variational Loss Surface**: Contrast the smooth convex funnel of the Equivariant Ansatz against the flat barren plateau of HEA.
-- **Sycamore Hardware Circuit Decomposition Inspector**.
 
 ---
 
