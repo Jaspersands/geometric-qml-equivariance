@@ -26,8 +26,12 @@ from .sycamore_transpile import (
     decompose_heisenberg_interaction_to_fsim,
 )
 from .vqe import EquivariantVQE
+from .dla import DynamicalLieAlgebraAnalyzer
+from .fermi_hubbard import FermiHubbardChain
+from .qgnn import QuantumGraphNeuralNetwork
+from .export_openfermion import export_heisenberg_to_dict, save_hamiltonian_json
 
-__version__ = "0.1.0"
+__version__ = "0.2.0"
 __all__ = [
     "HeisenbergSpinChain",
     "get_su2_generators",
@@ -42,4 +46,9 @@ __all__ = [
     "SycamoreEquivariantTranspiler",
     "decompose_heisenberg_interaction_to_fsim",
     "EquivariantVQE",
+    "DynamicalLieAlgebraAnalyzer",
+    "FermiHubbardChain",
+    "QuantumGraphNeuralNetwork",
+    "export_heisenberg_to_dict",
+    "save_hamiltonian_json",
 ]
