@@ -53,7 +53,7 @@ def main(argv: list[str] | None = None) -> int:
         print(f"[*] Analyzing gradient variance for {args.ansatz.upper()} on {args.qubits} qubits (L={args.layers})...")
         analyzer = GradientVarianceAnalyzer(n_qubits=args.qubits, ansatz_type=args.ansatz, n_layers=args.layers)
         res = analyzer.compute_gradient_variance(n_samples=args.samples)
-        print(f"[+] Empirical Var[grad_0]: {res['var_param_0']:.6e} (Mean: {res['mean_param_0']:.4f})")
+        print(f"[+] Empirical Var[grad_0]: {res['var_param_0']:.6e} (Mean Norm: {res['mean_norm']:.4f})")
         print(f"[+] Total Parameters: {analyzer.ansatz.num_params()}")
         return 0
 
