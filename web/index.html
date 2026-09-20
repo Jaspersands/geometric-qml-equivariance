@@ -1,433 +1,742 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Geometric QML | SU(2) Equivariance & Barren Plateaus</title>
-  <script src="https://cdn.tailwindcss.com"></script>
-  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
-  <style>
-    @import url('https://fonts.googleapis.com/css2?family=Fira+Code:wght@300;400;600;700&family=Outfit:wght@300;400;600;700;800&display=swap');
-    :root {
-      --violet: #8b5cf6;
-      --amber: #f59e0b;
-      --bg: #0b0914;
-      --surface: #131024;
-      --border: #272147;
-    }
-    body {
-      font-family: 'Outfit', sans-serif;
-      background-color: var(--bg);
-      color: #f3f4f6;
-    }
-    .font-mono { font-family: 'Fira Code', monospace; }
-    .glass-panel {
-      background: rgba(19, 16, 36, 0.85);
-      backdrop-filter: blur(16px);
-      border: 1px solid rgba(139, 92, 246, 0.18);
-    }
-    input[type=range] {
-      accent-color: #8b5cf6;
-    }
-  </style>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Geometric QML Explorer</title>
+<meta name="description" content="SU(2)-equivariant quantum circuits vs barren plateaus: a statevector simulator in your browser samples real gradients, verifies singlet confinement and computes Dynamical Lie Algebra closures." />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet" />
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+<style>
+/* ---------------------------------------------------------------------------
+   qvibes design system — shared by all four project demos and the hub.
+   Tokens live on :root; each page overrides --accent / --accent-2 / --accent-rgb.
+   --------------------------------------------------------------------------- */
+:root {
+  --bg: #070a12;
+  --bg-2: #0b101c;
+  --surface: #0f1522;
+  --surface-2: #151d2e;
+  --surface-3: #1b2538;
+  --border: #202b42;
+  --border-2: #2a3752;
+  --text: #e8eef8;
+  --text-2: #c2cde0;
+  --muted: #8592ad;
+  --muted-2: #5d6a86;
+  --accent: #22d3ee;
+  --accent-2: #60a5fa;
+  --accent-rgb: 34, 211, 238;
+  --ok: #34d399;
+  --warn: #fbbf24;
+  --bad: #fb7185;
+  --violet: #a78bfa;
+  --rose: #fb7185;
+  --emerald: #34d399;
+  --amber: #fbbf24;
+  --sky: #38bdf8;
+  --radius: 14px;
+  --radius-sm: 9px;
+  --shadow: 0 12px 40px -18px rgba(0, 0, 0, 0.7);
+  --font-ui: "Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  color-scheme: dark;
+}
+
+*, *::before, *::after { box-sizing: border-box; }
+[hidden] { display: none !important; }
+html { -webkit-text-size-adjust: 100%; scroll-behavior: smooth; }
+body {
+  margin: 0;
+  font-family: var(--font-ui);
+  font-size: 15px;
+  line-height: 1.5;
+  color: var(--text);
+  background:
+    radial-gradient(1200px 600px at 10% -10%, rgba(var(--accent-rgb), 0.10), transparent 60%),
+    radial-gradient(900px 500px at 100% 0%, rgba(96, 165, 250, 0.07), transparent 60%),
+    var(--bg);
+  min-height: 100vh;
+  -webkit-font-smoothing: antialiased;
+}
+a { color: var(--accent); text-decoration: none; }
+a:hover { text-decoration: underline; }
+code, .mono { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+h1, h2, h3, h4 { margin: 0; line-height: 1.25; letter-spacing: -0.01em; }
+p { margin: 0; }
+button, input, select { font: inherit; color: inherit; }
+::selection { background: rgba(var(--accent-rgb), 0.35); }
+@media (prefers-reduced-motion: reduce) { *, *::before, *::after { transition: none !important; animation: none !important; } }
+
+/* Layout ------------------------------------------------------------------ */
+.wrap { max-width: 1280px; margin: 0 auto; padding: 0 16px; }
+.site-header {
+  position: sticky; top: 0; z-index: 40;
+  backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px);
+  background: rgba(7, 10, 18, 0.72);
+  border-bottom: 1px solid var(--border);
+}
+.site-header .wrap { display: flex; align-items: center; gap: 14px; min-height: 60px; }
+.brand { display: flex; align-items: center; gap: 12px; min-width: 0; flex: 1 1 auto; }
+.brand > div { min-width: 0; }
+@media (max-width: 560px) { .brand-sub { display: none; } .brand-title { font-size: 14.5px; } }
+.brand-mark {
+  width: 36px; height: 36px; border-radius: 10px; flex: none;
+  display: grid; place-items: center; font-family: var(--font-mono); font-weight: 700; font-size: 15px;
+  color: #06070d;
+  background: linear-gradient(135deg, var(--accent), var(--accent-2));
+  box-shadow: 0 6px 20px -6px rgba(var(--accent-rgb), 0.6);
+}
+.brand-title { font-weight: 700; font-size: 15.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.brand-sub { font-family: var(--font-mono); font-size: 11.5px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.header-actions { margin-left: auto; display: flex; gap: 8px; align-items: center; flex: none; }
+.hero { padding: 28px 0 8px; }
+.hero h1 { font-size: clamp(22px, 3.2vw, 32px); font-weight: 800; letter-spacing: -0.02em; }
+.hero p { color: var(--text-2); max-width: 820px; margin-top: 8px; font-size: 15px; }
+.hero-row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 12px; }
+
+.layout { display: grid; grid-template-columns: 1fr; gap: 18px; padding: 18px 0 40px; }
+@media (min-width: 1024px) {
+  .layout { grid-template-columns: 350px minmax(0, 1fr); align-items: start; }
+  .sidebar { position: sticky; top: 76px; }
+}
+.stack { display: grid; gap: 16px; min-width: 0; }
+.layout > *, .stack > *, .grid-2 > *, .stats > * { min-width: 0; }
+.grid-2 { display: grid; grid-template-columns: 1fr; gap: 16px; }
+@media (min-width: 720px) { .grid-2 { grid-template-columns: 1fr 1fr; } }
+.stats { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+@media (min-width: 720px) { .stats { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
+
+/* Panels ------------------------------------------------------------------ */
+.panel {
+  background: linear-gradient(180deg, rgba(255,255,255,0.025), rgba(255,255,255,0)) , var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  padding: 18px;
+}
+.panel-head { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; margin-bottom: 12px; flex-wrap: wrap; }
+.panel-title { font-size: 13.5px; font-weight: 700; letter-spacing: 0.01em; }
+.panel-kicker {
+  font-family: var(--font-mono); font-size: 11px; font-weight: 600; letter-spacing: 0.12em; text-transform: uppercase;
+  color: var(--accent); margin-bottom: 10px;
+}
+.panel-note { font-size: 12.5px; color: var(--muted); }
+.stat { padding: 14px 16px; border-left: 3px solid var(--accent); }
+.stat-label { font-family: var(--font-mono); font-size: 10.5px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--muted); }
+.stat-value { font-family: var(--font-mono); font-weight: 700; font-size: clamp(17px, 1.8vw, 22px); margin-top: 4px; color: var(--text); overflow-wrap: anywhere; }
+.stat-sub { font-size: 11.5px; color: var(--muted); margin-top: 2px; }
+.stat.violet { border-color: var(--violet); } .stat.rose { border-color: var(--rose); }
+.stat.emerald { border-color: var(--emerald); } .stat.amber { border-color: var(--amber); } .stat.sky { border-color: var(--sky); }
+.chart { position: relative; width: 100%; }
+.chart.h-64 { height: 260px; } .chart.h-56 { height: 220px; } .chart.h-48 { height: 190px; }
+
+/* Controls ---------------------------------------------------------------- */
+.field { display: grid; gap: 6px; margin-bottom: 12px; }
+.field-row { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; font-size: 12.5px; color: var(--text-2); }
+.field-row .val { font-family: var(--font-mono); font-weight: 600; color: var(--accent); }
+.select, .input {
+  width: 100%; background: var(--surface-2); border: 1px solid var(--border-2); border-radius: var(--radius-sm);
+  padding: 8px 10px; font-size: 13.5px; color: var(--text); outline: none;
+}
+.select:focus, .input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(var(--accent-rgb), 0.18); }
+.range { -webkit-appearance: none; appearance: none; width: 100%; height: 26px; background: transparent; margin: 0; }
+.range:focus { outline: none; }
+.range::-webkit-slider-runnable-track { height: 4px; border-radius: 4px; background: var(--border-2); }
+.range::-moz-range-track { height: 4px; border-radius: 4px; background: var(--border-2); }
+.range::-webkit-slider-thumb {
+  -webkit-appearance: none; width: 16px; height: 16px; margin-top: -6px; border-radius: 50%;
+  background: var(--accent); border: 2px solid var(--bg); box-shadow: 0 0 0 2px rgba(var(--accent-rgb), 0.45);
+  cursor: pointer; transition: transform 120ms ease;
+}
+.range::-moz-range-thumb { width: 14px; height: 14px; border-radius: 50%; background: var(--accent); border: 2px solid var(--bg); cursor: pointer; }
+.range:active::-webkit-slider-thumb { transform: scale(1.15); }
+.toggle { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 12px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--surface-2); margin-bottom: 10px; cursor: pointer; }
+.toggle .t-title { font-weight: 600; font-size: 13px; }
+.toggle .t-sub { font-size: 11.5px; color: var(--muted); }
+.switch { position: relative; width: 38px; height: 22px; flex: none; }
+.switch input { opacity: 0; width: 0; height: 0; position: absolute; }
+.switch .knob { position: absolute; inset: 0; border-radius: 22px; background: var(--border-2); transition: background 150ms ease; }
+.switch .knob::after { content: ""; position: absolute; top: 3px; left: 3px; width: 16px; height: 16px; border-radius: 50%; background: #fff; transition: transform 150ms ease; }
+.switch input:checked + .knob { background: var(--accent); }
+.switch input:checked + .knob::after { transform: translateX(16px); }
+.switch input:focus-visible + .knob { box-shadow: 0 0 0 3px rgba(var(--accent-rgb), 0.35); }
+
+.btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+  padding: 10px 14px; border-radius: var(--radius-sm); border: 1px solid var(--border-2);
+  background: var(--surface-2); color: var(--text); font-weight: 600; font-size: 13.5px; cursor: pointer;
+  transition: background 150ms ease, border-color 150ms ease, transform 120ms ease, opacity 150ms ease;
+  text-decoration: none; white-space: nowrap;
+}
+.btn:hover { background: var(--surface-3); border-color: var(--muted-2); text-decoration: none; }
+.btn:active { transform: translateY(1px); }
+.btn:disabled { opacity: 0.55; cursor: progress; }
+.btn-primary { background: linear-gradient(135deg, var(--accent), var(--accent-2)); color: #06070d; border-color: transparent; box-shadow: 0 8px 24px -10px rgba(var(--accent-rgb), 0.7); }
+.btn-primary:hover { filter: brightness(1.07); background: linear-gradient(135deg, var(--accent), var(--accent-2)); }
+.btn-block { width: 100%; }
+.btn-sm { padding: 6px 10px; font-size: 12.5px; }
+.btn-ghost { background: transparent; }
+.btn-row { display: flex; gap: 8px; flex-wrap: wrap; }
+.seg { display: inline-flex; border: 1px solid var(--border-2); border-radius: var(--radius-sm); overflow: hidden; }
+.seg button { border: 0; background: transparent; padding: 6px 10px; font-size: 12.5px; color: var(--muted); cursor: pointer; }
+.seg button.active { background: rgba(var(--accent-rgb), 0.18); color: var(--accent); }
+
+/* Chips & badges ---------------------------------------------------------- */
+.chip {
+  display: inline-flex; align-items: center; gap: 6px; padding: 3px 9px; border-radius: 999px;
+  font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.02em;
+  border: 1px solid var(--border-2); background: var(--surface-2); color: var(--text-2);
+}
+.chip.accent { color: var(--accent); border-color: rgba(var(--accent-rgb), 0.4); background: rgba(var(--accent-rgb), 0.10); }
+.chip.ok { color: var(--ok); border-color: rgba(52, 211, 153, 0.4); background: rgba(52, 211, 153, 0.10); }
+.chip.warn { color: var(--warn); border-color: rgba(251, 191, 36, 0.4); background: rgba(251, 191, 36, 0.10); }
+.chip.bad { color: var(--bad); border-color: rgba(251, 113, 133, 0.4); background: rgba(251, 113, 133, 0.10); }
+.dot { width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
+.dot.pulse { animation: pulse 1.6s ease-in-out infinite; }
+@keyframes pulse { 0%, 100% { opacity: 0.4; } 50% { opacity: 1; } }
+.tags { display: flex; flex-wrap: wrap; gap: 6px; }
+
+/* Misc -------------------------------------------------------------------- */
+.kv { display: grid; grid-template-columns: 1fr auto; gap: 6px 12px; font-size: 12.5px; }
+.kv dt { color: var(--muted); } .kv dd { margin: 0; font-family: var(--font-mono); color: var(--text); text-align: right; }
+.divider { height: 1px; background: var(--border); margin: 14px 0; }
+details.how { border: 1px dashed var(--border-2); border-radius: var(--radius); padding: 12px 16px; color: var(--text-2); font-size: 13.5px; }
+details.how summary { cursor: pointer; font-weight: 700; color: var(--text); list-style: none; display: flex; align-items: center; gap: 8px; }
+details.how summary::-webkit-details-marker { display: none; }
+details.how summary::before { content: "▸"; color: var(--accent); transition: transform 150ms ease; }
+details.how[open] summary::before { transform: rotate(90deg); }
+details.how ul { margin: 8px 0 0; padding-left: 18px; }
+details.how li { margin: 4px 0; }
+.log {
+  font-family: var(--font-mono); font-size: 12px; line-height: 1.55; color: var(--text-2);
+  background: var(--bg-2); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 10px 12px;
+  max-height: 180px; overflow: auto; white-space: pre-wrap;
+}
+.gate-row { display: flex; align-items: center; gap: 6px; overflow-x: auto; padding: 8px 2px; }
+.gate { flex: none; padding: 6px 9px; border-radius: 8px; border: 1px solid var(--border-2); background: var(--surface-2); font-family: var(--font-mono); font-size: 11.5px; white-space: nowrap; }
+.gate.accent { border-color: rgba(var(--accent-rgb), 0.5); background: rgba(var(--accent-rgb), 0.12); color: var(--accent); font-weight: 600; }
+.gate.wire { border: 0; background: transparent; color: var(--muted-2); padding: 0 2px; }
+.matrix { display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px; }
+.matrix .cell { background: var(--bg-2); border: 1px solid var(--border); border-radius: 6px; padding: 6px 2px; text-align: center; font-family: var(--font-mono); font-size: 11px; color: var(--accent); }
+.matrix .cell.dim { color: var(--muted-2); }
+.heat { display: grid; gap: 4px; }
+.heat .cell { aspect-ratio: 1.6; display: grid; place-items: center; border-radius: 6px; font-family: var(--font-mono); font-size: 11.5px; font-weight: 600; border: 1px solid var(--border); }
+.site-footer { border-top: 1px solid var(--border); padding: 22px 0 32px; color: var(--muted); font-size: 12.5px; }
+.site-footer .wrap { display: flex; flex-wrap: wrap; gap: 8px 18px; align-items: center; justify-content: space-between; }
+.sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+.progress { height: 4px; border-radius: 4px; background: var(--border); overflow: hidden; margin-top: 8px; }
+.progress > div { height: 100%; width: 0; background: var(--accent); transition: width 120ms linear; }
+
+:root { --accent: #a78bfa; --accent-2: #f0abfc; --accent-rgb: 167, 139, 250; }
+.lattice-svg { width: 100%; height: 150px; }
+.syc { display: grid; gap: 6px; }
+.syc .q { aspect-ratio: 1; border-radius: 8px; display: grid; place-items: center; font-family: var(--font-mono); font-size: 11px; border: 1px solid var(--border); color: var(--muted-2); background: var(--bg-2); }
+.syc .q.on { border-color: rgba(var(--accent-rgb), 0.6); background: rgba(var(--accent-rgb), 0.16); color: var(--accent); font-weight: 600; }
+</style>
 </head>
-<body class="min-h-screen flex flex-col antialiased selection:bg-purple-500 selection:text-white">
-  <!-- Top Navigation -->
-  <header class="border-b border-purple-900/40 bg-purple-950/20 backdrop-blur sticky top-0 z-50 px-6 py-4 flex items-center justify-between">
-    <div class="flex items-center space-x-3">
-      <div class="w-8 h-8 rounded-lg bg-gradient-to-tr from-purple-600 to-amber-500 flex items-center justify-center font-bold text-white shadow-lg shadow-purple-500/20">
-        SU₂
-      </div>
+<body>
+<header class="site-header">
+  <div class="wrap">
+    <div class="brand">
+      <div class="brand-mark">SU₂</div>
       <div>
-        <h1 class="text-lg font-bold text-white leading-tight">Geometric QML & Equivariance</h1>
-        <p class="text-xs text-purple-300 font-mono">Schur-Weyl Singlet Manifold • DLA Dimension Analysis • v0.2.0</p>
+        <div class="brand-title">geometric-qml-equivariance</div>
+        <div class="brand-sub">equivariant QNNs · DLA closure · barren plateaus · v0.3.0</div>
       </div>
     </div>
-    <div class="flex items-center space-x-4 text-sm font-mono">
-      <span class="hidden sm:inline text-slate-400">PennyLane + Cirq Sycamore</span>
-      <a href="https://github.com/Jaspersands/geometric-qml-equivariance" target="_blank" class="px-3 py-1.5 rounded-lg bg-purple-600/20 hover:bg-purple-600/30 text-purple-300 border border-purple-500/40 transition">
-        GitHub Repository ↗
-      </a>
+    <div class="header-actions">
+      <a class="btn btn-sm btn-ghost" href="../../index.html">← Suite</a>
+      <a class="btn btn-sm" href="https://github.com/Jaspersands/geometric-qml-equivariance" target="_blank" rel="noopener">GitHub ↗</a>
     </div>
-  </header>
+  </div>
+</header>
 
-  <!-- Main Grid -->
-  <main class="flex-1 max-w-7xl mx-auto w-full p-6 grid grid-cols-1 lg:grid-cols-12 gap-6">
-    <!-- Left Sidebar: Symmetry & Lattice Controls -->
-    <div class="lg:col-span-4 space-y-6">
-      <!-- Lattice & Geometry Configuration -->
-      <div class="glass-panel rounded-2xl p-5 shadow-xl">
-        <h2 class="text-xs font-bold uppercase tracking-wider text-purple-400 font-mono mb-4 flex items-center gap-2">
-          <span>01 // Lattice & Model Topology</span>
-        </h2>
-        <div class="space-y-4">
-          <div>
-            <label class="text-xs text-slate-300">Target Quantum Model</label>
-            <select id="selLattice" class="w-full mt-1 bg-slate-900 border border-purple-900/60 rounded-lg px-3 py-2 text-sm text-slate-200 focus:outline-none focus:border-purple-400 font-mono">
-              <option value="1d_chain">1D Heisenberg XXX Spin Chain</option>
-              <option value="2d_grid">2D Square Lattice (Planar Grid)</option>
-              <option value="fermi_hubbard">Fermi-Hubbard Chain (SU(2)xSU(2))</option>
-              <option value="qgnn">Permutation-Equivariant QGNN</option>
-            </select>
-          </div>
-          <div>
-            <div class="flex justify-between text-xs text-slate-300">
-              <span>System Size (Qubits N)</span>
-              <span id="valN" class="text-amber-400 font-mono font-bold">8 qubits</span>
-            </div>
-            <input id="sliderN" type="range" min="4" max="16" step="2" value="8" class="w-full mt-1">
-          </div>
-          <div>
-            <div class="flex justify-between text-xs text-slate-300">
-              <span>Circuit Depth (Layers L)</span>
-              <span id="valL" class="text-purple-300 font-mono font-bold">3 layers</span>
-            </div>
-            <input id="sliderL" type="range" min="1" max="10" step="1" value="3" class="w-full mt-1">
-          </div>
-        </div>
-      </div>
-
-      <!-- Dynamical Lie Algebra (DLA) & Catalan Metrics -->
-      <div class="glass-panel rounded-2xl p-5 shadow-xl border-l-4 border-amber-500">
-        <h2 class="text-xs font-bold uppercase tracking-wider text-amber-400 font-mono mb-3">
-          Dynamical Lie Algebra & Catalan Subspace
-        </h2>
-        <div class="space-y-3 font-mono text-xs">
-          <div class="flex justify-between border-b border-purple-900/40 pb-1.5">
-            <span class="text-slate-400">Total Hilbert Space (2ᴺ):</span>
-            <span id="statFullDim" class="text-white font-bold">256</span>
-          </div>
-          <div class="flex justify-between border-b border-purple-900/40 pb-1.5">
-            <span class="text-slate-400">Singlet Irrep (C_{N/2}):</span>
-            <span id="statSingletDim" class="text-amber-400 font-bold">14</span>
-          </div>
-          <div class="flex justify-between border-b border-purple-900/40 pb-1.5">
-            <span class="text-slate-400">DLA Dim dim(𝔤_EQNN):</span>
-            <span id="statDlaDim" class="text-purple-300 font-bold">𝒪(N³) = 56</span>
-          </div>
-          <div class="flex justify-between border-b border-purple-900/40 pb-1.5">
-            <span class="text-slate-400">Full SU(2ᴺ) DLA Dim:</span>
-            <span id="statFullDla" class="text-rose-400 font-bold">65,535</span>
-          </div>
-          <div class="flex justify-between">
-            <span class="text-slate-400">Space Reduction:</span>
-            <span id="statCompression" class="text-emerald-400 font-bold">94.53%</span>
-          </div>
-        </div>
-      </div>
-
-      <!-- Lattice Graph Visualization -->
-      <div class="glass-panel rounded-2xl p-5 shadow-xl">
-        <h2 class="text-xs font-bold uppercase tracking-wider text-purple-400 font-mono mb-3">
-          Lattice Topology Graph
-        </h2>
-        <div class="h-36 flex items-center justify-center">
-          <svg id="latticeSvg" class="w-full h-full" viewBox="0 0 300 120"></svg>
-        </div>
-      </div>
+<main class="wrap">
+  <section class="hero">
+    <h1>SU(2)-equivariant circuits versus barren plateaus</h1>
+    <p>This page runs a statevector simulator (up to 8 qubits) in JavaScript. It samples real gradients of ⟨H⟩ for an exchange-generated equivariant ansatz and a hardware-efficient ansatz at depth L = N, verifies that the equivariant state never leaves the total-spin-0 sector, and computes Dynamical Lie Algebra closures by iterated commutators — the same computations as the Python package.</p>
+    <div class="hero-row">
+      <span class="chip accent"><span class="dot"></span> statevector, n ≤ 8</span>
+      <span class="chip">central-difference gradients</span>
+      <span class="chip">DLA by commutator closure</span>
+      <span id="selftest" class="chip warn"><span class="dot pulse"></span> self-test running…</span>
     </div>
+  </section>
 
-    <!-- Right Panels: Variance Scaling, 3D Energy Landscape, Sycamore Preview -->
-    <div class="lg:col-span-8 space-y-6">
-      <!-- Comparative Scaling Metrics -->
-      <div class="grid grid-cols-2 sm:grid-cols-4 gap-4">
-        <div class="glass-panel rounded-xl p-4 border-l-4 border-purple-500">
-          <div class="text-xs text-slate-400 uppercase font-mono">EQNN Var[∇]</div>
-          <div id="statEqnnVar" class="text-xl font-black text-purple-300 font-mono mt-1">0.0842</div>
+  <div class="layout">
+    <aside class="sidebar stack">
+      <div class="panel">
+        <div class="panel-kicker">01 · Model &amp; lattice</div>
+        <div class="field">
+          <label class="field-row" for="lattice"><span>Lattice</span></label>
+          <select id="lattice" class="select">
+            <option value="1d_chain">1D Heisenberg chain (open)</option>
+            <option value="ring">Ring (periodic chain)</option>
+            <option value="2d_grid">2 × N/2 rectangular grid</option>
+            <option value="kagome">Kagome corner-sharing triangles (N = 6)</option>
+          </select>
         </div>
-        <div class="glass-panel rounded-xl p-4 border-l-4 border-rose-500">
-          <div class="text-xs text-slate-400 uppercase font-mono">HEA Var[∇]</div>
-          <div id="statHeaVar" class="text-xl font-black text-rose-400 font-mono mt-1">0.0039</div>
+        <div class="field">
+          <div class="field-row"><span>Qubits N (even)</span><span class="val" id="vN">6</span></div>
+          <input id="N" class="range" type="range" min="4" max="8" step="2" value="6" />
         </div>
-        <div class="glass-panel rounded-xl p-4 border-l-4 border-amber-500">
-          <div class="text-xs text-slate-400 uppercase font-mono">Trainability Ratio</div>
-          <div id="statRatio" class="text-xl font-black text-amber-300 font-mono mt-1">21.6 ×</div>
+        <div class="field">
+          <div class="field-row"><span>Anisotropy Δ (Δ = 1 is SU(2)-symmetric)</span><span class="val" id="vDelta">1.00</span></div>
+          <input id="delta" class="range" type="range" min="0" max="2.5" step="0.05" value="1" />
         </div>
-        <div class="glass-panel rounded-xl p-4 border-l-4 border-teal-500">
-          <div class="text-xs text-slate-400 uppercase font-mono">Sycamore FSim Gates</div>
-          <div id="statFSimGates" class="text-xl font-black text-teal-300 font-mono mt-1">21 gates</div>
+        <dl class="kv" id="kv"></dl>
+      </div>
+
+      <div class="panel">
+        <div class="panel-kicker">02 · Gradient sampling</div>
+        <label class="toggle"><div><div class="t-title">Depth L = N (plateau regime)</div><div class="t-sub">off: fixed L = 2 for every N</div></div><span class="switch"><input id="depthLinear" type="checkbox" checked /><span class="knob"></span></span></label>
+        <div class="field">
+          <div class="field-row"><span>Random parameter draws per N</span><span class="val" id="vSamples">20</span></div>
+          <input id="samples" class="range" type="range" min="8" max="60" step="4" value="20" />
+        </div>
+        <button id="btnVar" class="btn btn-primary btn-block">⚡ Sample gradients for N = 4, 6, 8</button>
+        <div class="progress"><div id="varProg"></div></div>
+        <p class="panel-note" style="margin-top:8px">The EQNN's shared angle multiplies a sum over N−1 bonds, so its variance is divided by (N−1)² and reported per bond.</p>
+      </div>
+
+      <div class="panel">
+        <div class="panel-kicker">03 · Dynamical Lie Algebra</div>
+        <p class="panel-note">Closure of {i·G_k} under commutators, Hilbert–Schmidt Gram–Schmidt, traceless generators. EQNN: exchange G_ij per bond; HEA: Y_i, Z_i and the CNOT generator (1−Z_c)(1−X_t).</p>
+        <div class="btn-row" style="margin-top:10px">
+          <button id="btnDLA" class="btn btn-sm">Compute closures (N = 2, 3, 4)</button>
+        </div>
+        <div id="dlaLog" class="log" style="margin-top:10px">—</div>
+      </div>
+    </aside>
+
+    <section class="stack">
+      <div class="stats">
+        <div class="panel stat"><div class="stat-label">⟨S²⟩ of EQNN state</div><div class="stat-value" id="sS2">—</div><div class="stat-sub">random parameters, must be 0</div></div>
+        <div class="panel stat rose"><div class="stat-label">⟨S²⟩ of HEA state</div><div class="stat-value" id="sS2h">—</div><div class="stat-sub">no symmetry constraint</div></div>
+        <div class="panel stat amber"><div class="stat-label">HEA log₂-slope</div><div class="stat-value" id="sSlopeH">—</div><div class="stat-sub" id="sSlopeHsub">Var ∝ 2^(slope·N)</div></div>
+        <div class="panel stat emerald"><div class="stat-label">EQNN log₂-slope</div><div class="stat-value" id="sSlopeE">—</div><div class="stat-sub" id="sSlopeEsub">per-bond variance</div></div>
+      </div>
+
+      <div class="panel">
+        <div class="panel-head">
+          <div><div class="panel-title">Gradient variance versus system size</div><div class="panel-note" id="varNote">Var[∂θ⟨H⟩] over uniformly random parameters, mean over parameters. Depth L = N.</div></div>
+          <span class="chip" id="chipVar">not sampled</span>
+        </div>
+        <div class="chart h-64"><canvas id="varChart"></canvas></div>
+      </div>
+
+      <div class="grid-2">
+        <div class="panel">
+          <div class="panel-head"><div class="panel-title">Spectrum &amp; total-spin sectors</div><span class="chip" id="chipSectors">—</span></div>
+          <div class="chart h-48"><canvas id="specChart"></canvas></div>
+        </div>
+        <div class="panel">
+          <div class="panel-head"><div class="panel-title">DLA dimension</div><span class="chip" id="chipDLA">EQNN vs HEA vs closed form</span></div>
+          <div class="chart h-48"><canvas id="dlaChart"></canvas></div>
         </div>
       </div>
 
-      <!-- Variance Scaling Chart -->
-      <div class="glass-panel rounded-2xl p-6 shadow-xl">
-        <div class="flex items-center justify-between mb-3">
-          <h3 class="text-base font-bold text-white flex items-center gap-2">
-            <span>Gradient Variance Scaling Var[∂_θ ⟨H⟩] vs. System Size (N)</span>
-          </h3>
-          <span class="text-xs px-2.5 py-1 rounded-full bg-purple-950 text-purple-300 font-mono border border-purple-800">Log Scale</span>
+      <div class="grid-2">
+        <div class="panel">
+          <div class="panel-head"><div class="panel-title">Lattice</div><span class="chip" id="chipBonds">—</span></div>
+          <svg id="latticeSvg" class="lattice-svg" viewBox="0 0 320 150"></svg>
         </div>
-        <div class="h-64">
-          <canvas id="varianceChart"></canvas>
-        </div>
-      </div>
-
-      <!-- Bottom Split: 3D Landscape & Sycamore Transpiler -->
-      <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
-        <!-- 3D Loss Landscape Canvas -->
-        <div class="glass-panel rounded-2xl p-6 shadow-xl">
-          <div class="flex items-center justify-between mb-2">
-            <h3 class="text-base font-bold text-white">3D Optimization Landscape</h3>
-            <div class="flex gap-2">
-              <button id="btnViewEQNN" class="text-xs px-2 py-0.5 rounded bg-purple-600 text-white font-mono">EQNN (Funnel)</button>
-              <button id="btnViewHEA" class="text-xs px-2 py-0.5 rounded bg-slate-800 text-slate-400 hover:text-white font-mono">HEA (Plateau)</button>
-            </div>
-          </div>
-          <p class="text-xs text-slate-400 mb-3" id="landscapeDesc">Equivariant ansatz creates a steep, steerable convex valley.</p>
-          <div id="threeContainer" class="h-52 rounded-xl overflow-hidden bg-slate-950/60 border border-purple-900/30"></div>
-        </div>
-
-        <!-- Sycamore Grid Mapping -->
-        <div class="glass-panel rounded-2xl p-6 shadow-xl">
-          <h3 class="text-base font-bold text-white mb-2">Google Sycamore Grid Layout</h3>
-          <p class="text-xs text-slate-400 mb-3">Native PhasedFSim decomposition routed on Sycamore grid.</p>
-          <div class="h-52 rounded-xl bg-slate-950/60 border border-purple-900/30 p-4 flex flex-col justify-center items-center">
-            <div id="sycamoreGrid" class="grid grid-cols-4 gap-3"></div>
-          </div>
+        <div class="panel">
+          <div class="panel-head"><div class="panel-title">Sycamore snake placement</div><span class="chip" id="chipSyc">—</span></div>
+          <div id="syc" class="syc"></div>
+          <p class="panel-note" style="margin-top:8px">Row 0 left→right, row 1 right→left: every chain bond (i, i+1) is a physical neighbour. Each exchange gate = FSim(2θ, 0) + CNOT·Rz(2θ)·CNOT.</p>
         </div>
       </div>
-    </div>
-  </main>
 
-  <footer class="border-t border-purple-900/40 py-6 text-center text-xs text-slate-500 font-mono">
-    Geometric QML & SU(2) Equivariance • Designed by Jasper Sands • Built with PennyLane & Cirq
-  </footer>
+      <details class="how">
+        <summary>How this page computes its numbers</summary>
+        <ul>
+          <li><b>State.</b> Complex amplitudes for 2ᴺ basis states (qubit 0 = most significant bit). Gates act in place: exp(−iφP) = cos φ − i sin φ·P for two-qubit Paulis, RY/RZ/CNOT/H for the hardware-efficient ansatz.</li>
+          <li><b>Ansätze.</b> EQNN: |singlet⟩^{⊗N/2} then per layer one shared angle θ_l on every bond, exp(−iθ(XX+YY+ZZ)). HEA: RY·RZ on every qubit, CNOT chain, repeated L times plus a final rotation layer.</li>
+          <li><b>Gradients.</b> Central differences with h = 10⁻⁴ on the exact expectation value (error ~10⁻⁸); sampled over uniform parameters in [0, 2π). Variance is over draws; the mean over parameters is plotted and fitted as log₂ Var = a·N + b.</li>
+          <li><b>⟨S²⟩.</b> S² = 3N/4 + ½ Σ_{i&lt;j} ⟨σ_i·σ_j⟩ from the same Pauli expectation routine.</li>
+          <li><b>DLA.</b> Generators are made traceless, mapped to iG, and closed under commutators with Gram–Schmidt in the Hilbert–Schmidt inner product until nothing new appears. The closed form Σ_S (m_S²−1)+1 uses m_S = C(N, N/2−S) − C(N, N/2−S−1).</li>
+          <li><b>Limits.</b> Up to 8 qubits and depth 8 to stay under a few seconds; the Python package runs the same study with PennyLane backprop and larger N.</li>
+        </ul>
+      </details>
+    </section>
+  </div>
+</main>
 
-  <script>
-    let N = 8, L = 3, lattice = '1d_chain', currentLandscape = 'eqnn';
+<footer class="site-footer"><div class="wrap"><span>geometric-qml-equivariance v0.3.0 · Jasper Sands · Apache-2.0</span><span class="mono">Python: PennyLane · Cirq — this page: vanilla JS + Chart.js</span></div></footer>
 
-    const sN = document.getElementById('sliderN');
-    const sL = document.getElementById('sliderL');
-    const selLat = document.getElementById('selLattice');
-    const btnEQNN = document.getElementById('btnViewEQNN');
-    const btnHEA = document.getElementById('btnViewHEA');
+<script>
+/* ---------------------------------------------------------------------------
+   qcore — tiny dense complex linear algebra + optimisers for the qvibes demos.
+   Matrices are {n, m, re: Float64Array, im: Float64Array} in row-major order.
+   --------------------------------------------------------------------------- */
+const Q = (() => {
+  const TWO_PI = 2 * Math.PI;
 
-    const ctxVar = document.getElementById('varianceChart').getContext('2d');
-    const varianceChart = new Chart(ctxVar, {
-      type: 'line',
-      data: {
-        labels: [2, 4, 6, 8, 10, 12, 14, 16],
-        datasets: [
-          { label: 'Equivariant QNN (Poly decay ~ 1/N^0.8)', data: [], borderColor: '#a855f7', backgroundColor: 'rgba(168, 85, 247, 0.1)', fill: true, borderWidth: 3, tension: 0.2, pointRadius: 5 },
-          { label: 'Hardware-Efficient HEA (Exponential decay ~ 2^-N)', data: [], borderColor: '#f43f5e', borderWidth: 2, borderDash: [5, 5], pointRadius: 5 },
-          { label: 'QAOA Alternating (Sub-exponential)', data: [], borderColor: '#f59e0b', borderWidth: 1.5, pointRadius: 4 }
-        ]
-      },
-      options: {
-        responsive: true,
-        maintainAspectRatio: false,
-        scales: {
-          x: { grid: { color: '#272147' }, ticks: { color: '#94a3b8' }, title: { display: true, text: 'Qubits (N)', color: '#94a3b8' } },
-          y: { type: 'logarithmic', min: 0.00005, max: 1.0, grid: { color: '#272147' }, ticks: { color: '#c084fc' }, title: { display: true, text: 'Gradient Variance Var[∇]', color: '#c084fc' } }
-        },
-        plugins: { legend: { labels: { color: '#e2e8f0' } } }
+  function zeros(n, m = n) { return { n, m, re: new Float64Array(n * m), im: new Float64Array(n * m) }; }
+  function eye(n) { const A = zeros(n); for (let i = 0; i < n; i++) A.re[i * n + i] = 1; return A; }
+  function clone(A) { return { n: A.n, m: A.m, re: A.re.slice(), im: A.im.slice() }; }
+  function fromRows(rows) {
+    const n = rows.length, m = rows[0].length, A = zeros(n, m);
+    for (let i = 0; i < n; i++) for (let j = 0; j < m; j++) {
+      const v = rows[i][j];
+      if (typeof v === 'number') A.re[i * m + j] = v; else { A.re[i * m + j] = v[0]; A.im[i * m + j] = v[1]; }
+    }
+    return A;
+  }
+  function mul(A, B) {
+    const n = A.n, k = A.m, m = B.m, C = zeros(n, m);
+    for (let i = 0; i < n; i++) for (let p = 0; p < k; p++) {
+      const ar = A.re[i * k + p], ai = A.im[i * k + p];
+      if (ar === 0 && ai === 0) continue;
+      for (let j = 0; j < m; j++) {
+        const br = B.re[p * m + j], bi = B.im[p * m + j];
+        C.re[i * m + j] += ar * br - ai * bi;
+        C.im[i * m + j] += ar * bi + ai * br;
       }
-    });
-
-    function getCatalan(n) {
-      const k = n / 2;
-      let c = 1;
-      for (let i = 1; i <= k; i++) c = (c * (k + i)) / i;
-      return Math.round(c / (k + 1));
     }
-
-    function updateMetricsAndCharts() {
-      const fullDim = Math.pow(2, N);
-      const singletDim = getCatalan(N);
-      const comp = ((1 - singletDim / fullDim) * 100).toFixed(2);
-      const dlaDim = Math.round(Math.pow(N, 1.8) + N * L);
-      const fullDla = Math.pow(4, N) - 1;
-
-      document.getElementById('statFullDim').innerText = fullDim.toLocaleString();
-      document.getElementById('statSingletDim').innerText = singletDim.toLocaleString();
-      document.getElementById('statDlaDim').innerText = `${dlaDim} (Poly)`;
-      document.getElementById('statFullDla').innerText = fullDla > 1e7 ? fullDla.toExponential(2) : fullDla.toLocaleString();
-      document.getElementById('statCompression').innerText = comp + '%';
-
-      const qRange = [2, 4, 6, 8, 10, 12, 14, 16];
-      const eqnnData = [], heaData = [], qaoaData = [];
-
-      qRange.forEach(q => {
-        const vEqnn = 0.28 / (Math.pow(q, 0.72) * (1.0 + 0.03 * (L - 1)));
-        const vHea = 0.5 * Math.pow(2, -q * 0.75) / Math.pow(L, 0.5);
-        const vQaoa = 0.25 * Math.pow(1.6, -q * 0.5);
-        eqnnData.push(vEqnn); heaData.push(vHea); qaoaData.push(vQaoa);
-      });
-
-      varianceChart.data.datasets[0].data = eqnnData;
-      varianceChart.data.datasets[1].data = heaData;
-      varianceChart.data.datasets[2].data = qaoaData;
-      varianceChart.update('none');
-
-      const curIdx = qRange.indexOf(N);
-      const curEqnn = eqnnData[curIdx];
-      const curHea = heaData[curIdx];
-      const ratio = (curEqnn / Math.max(curHea, 1e-7)).toFixed(1);
-      const totalGates = (N - 1) * L;
-
-      document.getElementById('statEqnnVar').innerText = curEqnn.toFixed(4);
-      document.getElementById('statHeaVar').innerText = curHea.toExponential(2);
-      document.getElementById('statRatio').innerText = ratio + ' ×';
-      document.getElementById('statFSimGates').innerText = totalGates + ' gates';
-
-      renderLatticeSvg();
-      renderSycamoreGrid();
+    return C;
+  }
+  function add(A, B, s = 1) { const C = clone(A); for (let i = 0; i < C.re.length; i++) { C.re[i] += s * B.re[i]; C.im[i] += s * B.im[i]; } return C; }
+  function scale(A, sr, si = 0) { const C = zeros(A.n, A.m); for (let i = 0; i < C.re.length; i++) { C.re[i] = A.re[i] * sr - A.im[i] * si; C.im[i] = A.re[i] * si + A.im[i] * sr; } return C; }
+  function adj(A) { const C = zeros(A.m, A.n); for (let i = 0; i < A.n; i++) for (let j = 0; j < A.m; j++) { C.re[j * A.n + i] = A.re[i * A.m + j]; C.im[j * A.n + i] = -A.im[i * A.m + j]; } return C; }
+  function trace(A) { let r = 0, i = 0; for (let k = 0; k < A.n; k++) { r += A.re[k * A.m + k]; i += A.im[k * A.m + k]; } return [r, i]; }
+  function kron(A, B) {
+    const n = A.n * B.n, m = A.m * B.m, C = zeros(n, m);
+    for (let i = 0; i < A.n; i++) for (let j = 0; j < A.m; j++) {
+      const ar = A.re[i * A.m + j], ai = A.im[i * A.m + j];
+      for (let k = 0; k < B.n; k++) for (let l = 0; l < B.m; l++) {
+        const br = B.re[k * B.m + l], bi = B.im[k * B.m + l];
+        const idx = (i * B.n + k) * m + (j * B.m + l);
+        C.re[idx] = ar * br - ai * bi; C.im[idx] = ar * bi + ai * br;
+      }
     }
+    return C;
+  }
+  function norm1(A) { let mx = 0; for (let j = 0; j < A.m; j++) { let s = 0; for (let i = 0; i < A.n; i++) s += Math.hypot(A.re[i * A.m + j], A.im[i * A.m + j]); mx = Math.max(mx, s); } return mx; }
+  /** exp(A) for a square complex matrix via scaling & squaring + Taylor(16). */
+  function expm(A) {
+    const n = A.n; let s = 0; const nrm = norm1(A);
+    if (nrm > 0.5) s = Math.ceil(Math.log2(nrm / 0.5));
+    const As = scale(A, Math.pow(2, -s));
+    let term = eye(n), result = eye(n);
+    for (let k = 1; k <= 16; k++) { term = scale(mul(term, As), 1 / k); result = add(result, term); }
+    for (let k = 0; k < s; k++) result = mul(result, result);
+    return result;
+  }
+  /** |Tr(A† B)|² / d² — global-phase-invariant process fidelity. */
+  function processFidelity(A, B) { const t = trace(mul(adj(A), B)); return (t[0] * t[0] + t[1] * t[1]) / (A.n * A.n); }
+  function applyToVec(A, v) { // v: {re, im}
+    const n = A.n, out = { re: new Float64Array(n), im: new Float64Array(n) };
+    for (let i = 0; i < n; i++) { let r = 0, im = 0; for (let j = 0; j < A.m; j++) { r += A.re[i * A.m + j] * v.re[j] - A.im[i * A.m + j] * v.im[j]; im += A.re[i * A.m + j] * v.im[j] + A.im[i * A.m + j] * v.re[j]; } out.re[i] = r; out.im[i] = im; }
+    return out;
+  }
+  function rz(theta) { return fromRows([[[Math.cos(theta / 2), -Math.sin(theta / 2)], 0], [0, [Math.cos(theta / 2), Math.sin(theta / 2)]]]); }
+  function isUnitary(A, tol = 1e-8) { const P = mul(adj(A), A); for (let i = 0; i < A.n; i++) for (let j = 0; j < A.n; j++) { const e = (i === j ? 1 : 0); if (Math.abs(P.re[i * A.n + j] - e) > tol || Math.abs(P.im[i * A.n + j]) > tol) return false; } return true; }
 
-    function renderLatticeSvg() {
-      const svg = document.getElementById('latticeSvg');
-      svg.innerHTML = '';
-      const w = 300, h = 120;
-      const nodes = [];
-
-      if (lattice === '1d_chain' || lattice === 'fermi_hubbard') {
-        const step = w / (N + 1);
-        for (let i = 0; i < N; i++) nodes.push({ x: (i + 1) * step, y: h / 2 });
-        for (let i = 0; i < N - 1; i++) drawEdge(svg, nodes[i], nodes[i + 1]);
-      } else if (lattice === '2d_grid') {
-        const cols = N / 2;
-        const stepX = w / (cols + 1);
-        for (let r = 0; r < 2; r++) {
-          for (let c = 0; c < cols; c++) nodes.push({ x: (c + 1) * stepX, y: r === 0 ? 35 : 85 });
-        }
-        for (let c = 0; c < cols - 1; c++) {
-          drawEdge(svg, nodes[c], nodes[c + 1]);
-          drawEdge(svg, nodes[c + cols], nodes[c + 1 + cols]);
-        }
-        for (let c = 0; c < cols; c++) drawEdge(svg, nodes[c], nodes[c + cols]);
-      } else {
-        // QGNN all-to-all or random
-        const step = w / (N + 1);
-        for (let i = 0; i < N; i++) nodes.push({ x: (i + 1) * step, y: (i % 2 === 0) ? 35 : 85 });
-        for (let i = 0; i < N; i++) {
-          for (let j = i + 1; j < N; j++) {
-            if ((i + j) % 2 === 1) drawEdge(svg, nodes[i], nodes[j], '#f59e0b');
+  // ---- Hermitian eigendecomposition (cyclic Jacobi on complex Hermitian) ----
+  /** Returns {w (ascending), V (columns = eigenvectors)} with A V = V diag(w). */
+  function eigh(H) {
+    const n = H.n; const A = clone(H); const V = eye(n);
+    for (let sweep = 0; sweep < 80; sweep++) {
+      let off = 0;
+      for (let p = 0; p < n; p++) for (let q = p + 1; q < n; q++) off += A.re[p * n + q] ** 2 + A.im[p * n + q] ** 2;
+      if (off < 1e-26) break;
+      for (let p = 0; p < n; p++) for (let q = p + 1; q < n; q++) {
+        const br = A.re[p * n + q], bi = A.im[p * n + q]; const b = Math.hypot(br, bi);
+        if (b < 1e-300) continue;
+        const a = A.re[p * n + p], d = A.re[q * n + q];
+        const theta = 0.5 * Math.atan2(2 * b, a - d), c = Math.cos(theta), s = Math.sin(theta);
+        // e^{-iφ} = conj(a_pq)/|a_pq|;  G = P·R with P = diag(1, e^{-iφ}), R = [[c,-s],[s,c]]
+        const er = br / b, ei = -bi / b;   // e^{-iφ}
+        const g11r = c, g11i = 0, g12r = -s, g12i = 0;
+        const g21r = s * er, g21i = s * ei, g22r = c * er, g22i = c * ei;
+        for (let k = 0; k < n; k++) {   // columns: A ← A G, V ← V G
+          for (const M of [A, V]) {
+            const xr = M.re[k * n + p], xi = M.im[k * n + p], yr = M.re[k * n + q], yi = M.im[k * n + q];
+            M.re[k * n + p] = xr * g11r - xi * g11i + yr * g21r - yi * g21i;
+            M.im[k * n + p] = xr * g11i + xi * g11r + yr * g21i + yi * g21r;
+            M.re[k * n + q] = xr * g12r - xi * g12i + yr * g22r - yi * g22i;
+            M.im[k * n + q] = xr * g12i + xi * g12r + yr * g22i + yi * g22r;
           }
         }
-      }
-
-      nodes.forEach((n, idx) => {
-        const circle = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
-        circle.setAttribute('cx', n.x);
-        circle.setAttribute('cy', n.y);
-        circle.setAttribute('r', '8');
-        circle.setAttribute('fill', '#a855f7');
-        circle.setAttribute('stroke', '#ffffff');
-        circle.setAttribute('stroke-width', '1.5');
-        svg.appendChild(circle);
-
-        const txt = document.createElementNS('http://www.w3.org/2000/svg', 'text');
-        txt.setAttribute('x', n.x);
-        txt.setAttribute('y', n.y + 3);
-        txt.setAttribute('text-anchor', 'middle');
-        txt.setAttribute('fill', '#ffffff');
-        txt.setAttribute('font-size', '8');
-        txt.setAttribute('font-family', 'Fira Code');
-        txt.textContent = 'q' + idx;
-        svg.appendChild(txt);
-      });
-    }
-
-    function drawEdge(svg, n1, n2, color = '#8b5cf6') {
-      const line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
-      line.setAttribute('x1', n1.x); line.setAttribute('y1', n1.y);
-      line.setAttribute('x2', n2.x); line.setAttribute('y2', n2.y);
-      line.setAttribute('stroke', color); line.setAttribute('stroke-width', '2');
-      line.setAttribute('stroke-opacity', '0.6');
-      svg.appendChild(line);
-    }
-
-    function renderSycamoreGrid() {
-      const grid = document.getElementById('sycamoreGrid');
-      grid.innerHTML = '';
-      for (let i = 0; i < 16; i++) {
-        const cell = document.createElement('div');
-        const isActive = i < N;
-        cell.className = `w-9 h-9 rounded-lg flex items-center justify-center text-xs font-mono font-bold transition ${
-          isActive ? 'bg-purple-600/40 text-purple-200 border border-purple-400 shadow-md shadow-purple-500/20' : 'bg-slate-900/40 text-slate-600 border border-slate-800'
-        }`;
-        cell.innerText = isActive ? `q${i}` : '•';
-        grid.appendChild(cell);
+        for (let k = 0; k < n; k++) {   // rows: A ← G† A
+          const xr = A.re[p * n + k], xi = A.im[p * n + k], yr = A.re[q * n + k], yi = A.im[q * n + k];
+          // (G†A)_pk = conj(g11) x + conj(g21) y ; (G†A)_qk = conj(g12) x + conj(g22) y
+          A.re[p * n + k] = g11r * xr + g11i * xi + g21r * yr + g21i * yi;
+          A.im[p * n + k] = g11r * xi - g11i * xr + g21r * yi - g21i * yr;
+          A.re[q * n + k] = g12r * xr + g12i * xi + g22r * yr + g22i * yi;
+          A.im[q * n + k] = g12r * xi - g12i * xr + g22r * yi - g22i * yr;
+        }
+        A.im[p * n + p] = 0; A.im[q * n + q] = 0; A.re[p * n + q] = 0; A.im[p * n + q] = 0; A.re[q * n + p] = 0; A.im[q * n + p] = 0;
       }
     }
+    const w = new Float64Array(n); for (let i = 0; i < n; i++) w[i] = A.re[i * n + i];
+    const order = Array.from({ length: n }, (_, i) => i).sort((a, b) => w[a] - w[b]);
+    const ws = new Float64Array(n), Vs = zeros(n);
+    order.forEach((src, dst) => { ws[dst] = w[src]; for (let k = 0; k < n; k++) { Vs.re[k * n + dst] = V.re[k * n + src]; Vs.im[k * n + dst] = V.im[k * n + src]; } });
+    return { w: ws, V: Vs };
+  }
 
-    let scene, camera, renderer, mesh;
-    function init3D() {
-      const container = document.getElementById('threeContainer');
-      scene = new THREE.Scene();
-      camera = new THREE.PerspectiveCamera(45, container.clientWidth / container.clientHeight, 0.1, 100);
-      camera.position.set(0, -18, 14);
-      camera.lookAt(0, 0, 0);
-
-      renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
-      renderer.setSize(container.clientWidth, container.clientHeight);
-      container.appendChild(renderer.domElement);
-
-      const light = new THREE.DirectionalLight(0xffffff, 1.2);
-      light.position.set(5, 5, 15);
-      scene.add(light);
-      scene.add(new THREE.AmbientLight(0x404040, 1.5));
-
-      createSurface(currentLandscape);
-
-      function animate() {
-        requestAnimationFrame(animate);
-        if (mesh) mesh.rotation.z += 0.005;
-        renderer.render(scene, camera);
+  // ---- Optimisers ------------------------------------------------------------
+  /** BFGS with Armijo backtracking on a smooth f: R^n → R with numeric gradient. */
+  function bfgs(f, x0, { maxIter = 200, tol = 1e-12, h = 1e-6, onIter = null, bounds = null } = {}) {
+    const n = x0.length; let x = Float64Array.from(x0);
+    const clampx = v => { if (!bounds) return v; for (let i = 0; i < n; i++) v[i] = Math.min(bounds[i][1], Math.max(bounds[i][0], v[i])); return v; };
+    x = clampx(x);
+    const grad = xx => { const g = new Float64Array(n); for (let i = 0; i < n; i++) { const xp = xx.slice(); xp[i] += h; const xm = xx.slice(); xm[i] -= h; g[i] = (f(xp) - f(xm)) / (2 * h); } return g; };
+    let fx = f(x), g = grad(x); const history = [fx];
+    let Hk = Array.from({ length: n }, (_, i) => Float64Array.from({ length: n }, (_, j) => (i === j ? 1 : 0)));
+    for (let it = 0; it < maxIter; it++) {
+      const d = new Float64Array(n); for (let i = 0; i < n; i++) { let s = 0; for (let j = 0; j < n; j++) s -= Hk[i][j] * g[j]; d[i] = s; }
+      let gd = 0; for (let i = 0; i < n; i++) gd += g[i] * d[i];
+      if (gd > 0) { for (let i = 0; i < n; i++) d[i] = -g[i]; gd = 0; for (let i = 0; i < n; i++) gd += g[i] * d[i]; Hk = Array.from({ length: n }, (_, i) => Float64Array.from({ length: n }, (_, j) => (i === j ? 1 : 0))); }
+      let alpha = 1, xn, fn;
+      for (let ls = 0; ls < 40; ls++) { xn = clampx(Float64Array.from(x, (v, i) => v + alpha * d[i])); fn = f(xn); if (fn <= fx + 1e-4 * alpha * gd) break; alpha *= 0.5; }
+      if (!(fn < fx)) { break; }
+      const gn = grad(xn); const s = Float64Array.from(xn, (v, i) => v - x[i]); const y = Float64Array.from(gn, (v, i) => v - g[i]);
+      let sy = 0; for (let i = 0; i < n; i++) sy += s[i] * y[i];
+      if (sy > 1e-14) {
+        const rho = 1 / sy; const Hy = new Float64Array(n); for (let i = 0; i < n; i++) { let t = 0; for (let j = 0; j < n; j++) t += Hk[i][j] * y[j]; Hy[i] = t; }
+        let yHy = 0; for (let i = 0; i < n; i++) yHy += y[i] * Hy[i];
+        for (let i = 0; i < n; i++) for (let j = 0; j < n; j++) Hk[i][j] += (1 + rho * yHy) * rho * s[i] * s[j] - rho * (Hy[i] * s[j] + s[i] * Hy[j]);
       }
-      animate();
+      const prev = fx; x = xn; fx = fn; g = gn; history.push(fx);
+      if (onIter) onIter(it, fx, x);
+      if (Math.abs(prev - fx) < tol * Math.max(1, Math.abs(fx)) && it > 5) break;
     }
+    return { x, f: fx, history };
+  }
+  /** Nelder–Mead for a few parameters. */
+  function nelderMead(f, x0, { maxIter = 600, step = 0.5, tol = 1e-12 } = {}) {
+    const n = x0.length; let simplex = [Float64Array.from(x0)];
+    for (let i = 0; i < n; i++) { const p = Float64Array.from(x0); p[i] += step; simplex.push(p); }
+    let vals = simplex.map(f);
+    for (let it = 0; it < maxIter; it++) {
+      const idx = vals.map((v, i) => i).sort((a, b) => vals[a] - vals[b]); simplex = idx.map(i => simplex[i]); vals = idx.map(i => vals[i]);
+      if (Math.abs(vals[n] - vals[0]) < tol) break;
+      const c = new Float64Array(n); for (let i = 0; i < n; i++) for (let j = 0; j < n; j++) c[j] += simplex[i][j] / n;
+      const xr = Float64Array.from(c, (v, j) => v + (v - simplex[n][j])); const fr = f(xr);
+      if (fr < vals[0]) { const xe = Float64Array.from(c, (v, j) => v + 2 * (v - simplex[n][j])); const fe = f(xe); if (fe < fr) { simplex[n] = xe; vals[n] = fe; } else { simplex[n] = xr; vals[n] = fr; } }
+      else if (fr < vals[n - 1]) { simplex[n] = xr; vals[n] = fr; }
+      else { const xc = Float64Array.from(c, (v, j) => v + 0.5 * (simplex[n][j] - v)); const fc = f(xc); if (fc < vals[n]) { simplex[n] = xc; vals[n] = fc; } else { for (let i = 1; i <= n; i++) { simplex[i] = Float64Array.from(simplex[i], (v, j) => simplex[0][j] + 0.5 * (v - simplex[0][j])); vals[i] = f(simplex[i]); } } }
+    }
+    const best = vals.indexOf(Math.min(...vals)); return { x: simplex[best], f: vals[best] };
+  }
 
-    function createSurface(type) {
-      if (mesh) scene.remove(mesh);
-      const size = 30;
-      const geom = new THREE.PlaneGeometry(12, 12, size, size);
-      const pos = geom.attributes.position;
+  // ---- RNG (seedable, mulberry32) + Gaussian --------------------------------
+  function rng(seed = 1) { let a = seed >>> 0; const r = () => { a |= 0; a = a + 0x6D2B79F5 | 0; let t = Math.imul(a ^ a >>> 15, 1 | a); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; }; r.normal = () => { let u = 0, v = 0; while (u === 0) u = r(); while (v === 0) v = r(); return Math.sqrt(-2 * Math.log(u)) * Math.cos(TWO_PI * v); }; r.int = n => Math.floor(r() * n); return r; }
 
-      for (let i = 0; i < pos.count; i++) {
-        const x = pos.getX(i);
-        const y = pos.getY(i);
-        let z = 0;
-        if (type === 'eqnn') z = -2.5 * Math.exp(-0.25 * (x * x + y * y)) + 0.15 * (x * x + y * y);
-        else z = -3.0 * Math.exp(-4.0 * (x * x + y * y));
-        pos.setZ(i, z);
+  // ---- Chart.js theme ------------------------------------------------------------
+  function css(name) { return getComputedStyle(document.documentElement).getPropertyValue(name).trim(); }
+  function chartDefaults() {
+    if (typeof Chart === 'undefined') return;
+    Chart.defaults.color = css('--muted'); Chart.defaults.borderColor = css('--border');
+    Chart.defaults.font.family = css('--font-mono') || 'monospace'; Chart.defaults.font.size = 11;
+    Chart.defaults.plugins.legend.labels.boxWidth = 10; Chart.defaults.plugins.legend.labels.boxHeight = 10;
+    Chart.defaults.plugins.legend.labels.color = css('--text-2');
+    Chart.defaults.plugins.tooltip.backgroundColor = css('--surface-3'); Chart.defaults.plugins.tooltip.titleColor = css('--text'); Chart.defaults.plugins.tooltip.bodyColor = css('--text-2'); Chart.defaults.plugins.tooltip.borderColor = css('--border-2'); Chart.defaults.plugins.tooltip.borderWidth = 1;
+    Chart.defaults.elements.point.radius = 0; Chart.defaults.elements.line.borderWidth = 2; Chart.defaults.animation = false;
+    Chart.defaults.responsive = true; Chart.defaults.maintainAspectRatio = false;
+  }
+  function axis(title, extra = {}) { return Object.assign({ grid: { color: css('--border') }, ticks: { color: css('--muted'), maxTicksLimit: 8 }, title: { display: !!title, text: title, color: css('--muted') } }, extra); }
+  const fmt = { pct: (x, d = 3) => (100 * x).toFixed(d) + '%', sci: (x, d = 2) => x === 0 ? '0' : x.toExponential(d).replace('e', '×10^').replace('+', ''), num: (x, d = 3) => Number(x).toFixed(d) };
+
+  return { TWO_PI, zeros, eye, clone, fromRows, mul, add, scale, adj, trace, kron, expm, processFidelity, applyToVec, rz, isUnitary, eigh, bfgs, nelderMead, rng, css, chartDefaults, axis, fmt };
+})();
+
+</script>
+<script>
+(() => {
+'use strict';
+const $ = id => document.getElementById(id);
+
+// ------------------------------------------------------------ statevector core
+function newState(n) { const d = 1 << n; const s = { n, re: new Float64Array(d), im: new Float64Array(d) }; s.re[0] = 1; return s; }
+function bit(idx, q, n) { return (idx >> (n - 1 - q)) & 1; }
+/** Apply a Pauli string {q: 'X'|'Y'|'Z'} to a state, returning a new state. */
+function applyPauli(s, spec) {
+  const n = s.n, d = 1 << n; const out = { n, re: new Float64Array(d), im: new Float64Array(d) };
+  let flip = 0; const qs = Object.keys(spec).map(Number);
+  for (const q of qs) if (spec[q] !== 'Z') flip |= 1 << (n - 1 - q);
+  for (let i = 0; i < d; i++) {
+    const j = i ^ flip; let pr = 1, pi = 0;   // phase accumulated
+    for (const q of qs) {
+      const b = bit(i, q, n); const p = spec[q];
+      if (p === 'Z' && b) { pr = -pr; pi = -pi; }
+      else if (p === 'Y') { // Y|b> = i(-1)^b |1-b>  → amplitude at j gets factor i·(-1)^b from source i
+        const f = b ? -1 : 1; const nr = -pi * f, ni = pr * f; pr = nr; pi = ni;
       }
-      geom.computeVertexNormals();
-
-      const mat = new THREE.MeshStandardMaterial({
-        color: type === 'eqnn' ? 0xa855f7 : 0xf43f5e,
-        wireframe: true,
-        roughness: 0.3
-      });
-      mesh = new THREE.Mesh(geom, mat);
-      scene.add(mesh);
     }
+    out.re[j] += pr * s.re[i] - pi * s.im[i]; out.im[j] += pr * s.im[i] + pi * s.re[i];
+  }
+  return out;
+}
+function inner(a, b) { let r = 0, i = 0; for (let k = 0; k < a.re.length; k++) { r += a.re[k] * b.re[k] + a.im[k] * b.im[k]; i += a.re[k] * b.im[k] - a.im[k] * b.re[k]; } return [r, i]; }
+function expval(s, spec) { return inner(s, applyPauli(s, spec))[0]; }
+/** s ← exp(−iφ P) s = cos φ s − i sin φ P s */
+function expPauli(s, spec, phi) {
+  const Ps = applyPauli(s, spec); const c = Math.cos(phi), sn = Math.sin(phi);
+  for (let k = 0; k < s.re.length; k++) { const pr = Ps.re[k], pi = Ps.im[k]; const r = c * s.re[k] + sn * pi, i = c * s.im[k] - sn * pr; s.re[k] = r; s.im[k] = i; }
+}
+function exchange(s, i, j, theta) { expPauli(s, { [i]: 'X', [j]: 'X' }, theta); expPauli(s, { [i]: 'Y', [j]: 'Y' }, theta); expPauli(s, { [i]: 'Z', [j]: 'Z' }, theta); }
+function apply1q(s, q, m) { // m: 2x2 complex [[a,b],[c,d]] as [re,im] pairs
+  const n = s.n, d = 1 << n, mask = 1 << (n - 1 - q);
+  for (let i = 0; i < d; i++) if (!(i & mask)) { const j = i | mask; const ar = s.re[i], ai = s.im[i], br = s.re[j], bi = s.im[j];
+    s.re[i] = m[0][0][0] * ar - m[0][0][1] * ai + m[0][1][0] * br - m[0][1][1] * bi; s.im[i] = m[0][0][0] * ai + m[0][0][1] * ar + m[0][1][0] * bi + m[0][1][1] * br;
+    s.re[j] = m[1][0][0] * ar - m[1][0][1] * ai + m[1][1][0] * br - m[1][1][1] * bi; s.im[j] = m[1][0][0] * ai + m[1][0][1] * ar + m[1][1][0] * bi + m[1][1][1] * br; }
+}
+const RY = t => [[[Math.cos(t / 2), 0], [-Math.sin(t / 2), 0]], [[Math.sin(t / 2), 0], [Math.cos(t / 2), 0]]];
+const RZ = t => [[[Math.cos(t / 2), -Math.sin(t / 2)], [0, 0]], [[0, 0], [Math.cos(t / 2), Math.sin(t / 2)]]];
+const HAD = [[[Math.SQRT1_2, 0], [Math.SQRT1_2, 0]], [[Math.SQRT1_2, 0], [-Math.SQRT1_2, 0]]];
+function cnot(s, c, t) { const n = s.n, d = 1 << n, mc = 1 << (n - 1 - c), mt = 1 << (n - 1 - t); for (let i = 0; i < d; i++) if ((i & mc) && !(i & mt)) { const j = i | mt; const r = s.re[i], im = s.im[i]; s.re[i] = s.re[j]; s.im[i] = s.im[j]; s.re[j] = r; s.im[j] = im; } }
+function singletProduct(n) { const s = newState(n); s.re[0] = 0; // |S>^{⊗N/2}: (|01>-|10>)/√2 per pair
+  const d = 1 << n; const pairs = n / 2; const amp = Math.pow(Math.SQRT1_2, pairs);
+  for (let i = 0; i < d; i++) { let ok = true, sign = 1; for (let p = 0; p < pairs; p++) { const a = bit(i, 2 * p, n), b = bit(i, 2 * p + 1, n); if (a === b) { ok = false; break; } if (a === 1) sign = -sign; } if (ok) s.re[i] = sign * amp; }
+  return s; }
 
-    sN.addEventListener('input', e => { N = parseInt(e.target.value); document.getElementById('valN').innerText = `${N} qubits`; updateMetricsAndCharts(); });
-    sL.addEventListener('input', e => { L = parseInt(e.target.value); document.getElementById('valL').innerText = `${L} layers`; updateMetricsAndCharts(); });
-    selLat.addEventListener('change', e => { lattice = e.target.value; updateMetricsAndCharts(); });
+// ------------------------------------------------------------ lattices, Hamiltonian
+function edges(n, type) {
+  const e = [];
+  if (type === '1d_chain' || type === 'ring') { for (let i = 0; i < n - 1; i++) e.push([i, i + 1]); if (type === 'ring' && n > 2) e.push([n - 1, 0]); }
+  else if (type === '2d_grid') { const cols = n / 2; for (let r = 0; r < 2; r++) for (let c = 0; c < cols; c++) { const idx = r * cols + c; if (c + 1 < cols) e.push([idx, idx + 1]); if (r === 0) e.push([idx, idx + cols]); } }
+  else if (type === 'kagome') { const nt = Math.floor(n / 3); for (let t = 0; t < nt; t++) { const a = 3 * t; e.push([a, a + 1], [a + 1, a + 2], [a, a + 2]); if (t + 1 < nt) e.push([a + 2, 3 * (t + 1)]); } }
+  return e;
+}
+function energy(s, bonds, delta) { let E = 0; for (const [i, j] of bonds) E += expval(s, { [i]: 'X', [j]: 'X' }) + expval(s, { [i]: 'Y', [j]: 'Y' }) + delta * expval(s, { [i]: 'Z', [j]: 'Z' }); return E; }
+function totalSpin2(s) { const n = s.n; let acc = 0.75 * n; for (let i = 0; i < n; i++) for (let j = i + 1; j < n; j++) acc += 0.5 * (expval(s, { [i]: 'X', [j]: 'X' }) + expval(s, { [i]: 'Y', [j]: 'Y' }) + expval(s, { [i]: 'Z', [j]: 'Z' })); return acc; }
 
-    btnEQNN.addEventListener('click', () => {
-      currentLandscape = 'eqnn';
-      btnEQNN.className = 'text-xs px-2 py-0.5 rounded bg-purple-600 text-white font-mono';
-      btnHEA.className = 'text-xs px-2 py-0.5 rounded bg-slate-800 text-slate-400 hover:text-white font-mono';
-      document.getElementById('landscapeDesc').innerText = 'Equivariant ansatz creates a steep, steerable convex valley.';
-      createSurface('eqnn');
-    });
+// ------------------------------------------------------------ ansätze
+function eqnnState(n, bonds, L, params) { const s = singletProduct(n); for (let l = 0; l < L; l++) for (const [i, j] of bonds) exchange(s, i, j, params[l]); return s; }
+function heaState(n, L, params) { const s = newState(n); let p = 0; for (let l = 0; l < L; l++) { for (let q = 0; q < n; q++) { apply1q(s, q, RY(params[p++])); apply1q(s, q, RZ(params[p++])); } for (let q = 0; q < n - 1; q++) cnot(s, q, q + 1); } for (let q = 0; q < n; q++) { apply1q(s, q, RY(params[p++])); apply1q(s, q, RZ(params[p++])); } return s; }
+function gradient(costFn, params, h = 1e-4) { const g = new Float64Array(params.length); for (let k = 0; k < params.length; k++) { const pp = params.slice(); pp[k] += h; const pm = params.slice(); pm[k] -= h; g[k] = (costFn(pp) - costFn(pm)) / (2 * h); } return g; }
 
-    btnHEA.addEventListener('click', () => {
-      currentLandscape = 'hea';
-      btnHEA.className = 'text-xs px-2 py-0.5 rounded bg-rose-600 text-white font-mono';
-      btnEQNN.className = 'text-xs px-2 py-0.5 rounded bg-slate-800 text-slate-400 hover:text-white font-mono';
-      document.getElementById('landscapeDesc').innerText = 'Hardware-Efficient HEA exhibits an exponential barren plateau (flat everywhere).';
-      createSurface('hea');
-    });
+// ------------------------------------------------------------ dense helpers for spectrum & DLA
+function pauliMatrix(spec, n) { // dense 2^n × 2^n via applying to basis vectors
+  const d = 1 << n; const M = Q.zeros(d);
+  for (let c = 0; c < d; c++) { const s = { n, re: new Float64Array(d), im: new Float64Array(d) }; s.re[c] = 1; const out = applyPauli(s, spec); for (let r = 0; r < d; r++) { M.re[r * d + c] = out.re[r]; M.im[r * d + c] = out.im[r]; } }
+  return M;
+}
+function hamiltonianMatrix(n, bonds, delta) { const d = 1 << n; let H = Q.zeros(d); for (const [i, j] of bonds) { H = Q.add(H, pauliMatrix({ [i]: 'X', [j]: 'X' }, n)); H = Q.add(H, pauliMatrix({ [i]: 'Y', [j]: 'Y' }, n)); H = Q.add(H, Q.scale(pauliMatrix({ [i]: 'Z', [j]: 'Z' }, n), delta)); } return H; }
+function binom(n, k) { if (k < 0 || k > n) return 0; let r = 1; for (let i = 1; i <= k; i++) r = r * (n - k + i) / i; return Math.round(r); }
+function multiplicities(n) { const out = {}; for (let S = n % 2 ? 0.5 : 0; S <= n / 2; S += 1) out[S] = binom(n, n / 2 - S) - binom(n, n / 2 - S - 1); return out; }
+function dlaClosedForm(n) { const m = multiplicities(n); let s = 1; for (const k in m) s += m[k] * m[k] - 1; return s; }
+function dlaClosure(gens, maxDim = 400) {
+  const d = gens[0].n, d2 = d * d;
+  const flat = M => { const v = new Float64Array(2 * d2); for (let k = 0; k < d2; k++) { v[k] = M.re[k]; v[d2 + k] = M.im[k]; } return v; };
+  const unflat = v => { const M = Q.zeros(d); for (let k = 0; k < d2; k++) { M.re[k] = v[k]; M.im[k] = v[d2 + k]; } return M; };
+  const dot = (a, b) => { let s = 0; for (let k = 0; k < a.length; k++) s += a[k] * b[k]; return s; }; // real inner product == Re Tr(A†B) for our flattening
+  const basis = [], mats = [];
+  const addVec = v => { for (const b of basis) { const c = dot(b, v); for (let k = 0; k < v.length; k++) v[k] -= c * b[k]; } const nrm = Math.sqrt(dot(v, v)); if (nrm > 1e-8) { for (let k = 0; k < v.length; k++) v[k] /= nrm; basis.push(v); mats.push(unflat(v)); return true; } return false; };
+  for (const g of gens) { const tr = Q.trace(g); const G = Q.add(g, Q.scale(Q.eye(d), tr[0] / d, tr[1] / d), -1); addVec(flat(Q.scale(G, 0, 1))); }
+  const rounds = [basis.length]; let newStart = 0, closed = false;
+  for (let it = 0; it < 30; it++) {
+    const end = mats.length; let added = 0;
+    for (let a = newStart; a < end; a++) for (let b = 0; b < end; b++) { if (b >= newStart && b <= a) continue; const C = Q.add(Q.mul(mats[a], mats[b]), Q.mul(mats[b], mats[a]), -1); if (addVec(flat(C))) added++; if (mats.length >= maxDim) break; }
+    rounds.push(mats.length); newStart = end;
+    if (added === 0) { closed = true; break; } if (mats.length >= maxDim) break;
+  }
+  return { dim: mats.length, rounds, closed };
+}
+function eqnnGenerators(n, bonds) { return bonds.map(([i, j]) => Q.add(Q.add(pauliMatrix({ [i]: 'X', [j]: 'X' }, n), pauliMatrix({ [i]: 'Y', [j]: 'Y' }, n)), pauliMatrix({ [i]: 'Z', [j]: 'Z' }, n))); }
+function heaGenerators(n) { const g = []; for (let q = 0; q < n; q++) { g.push(pauliMatrix({ [q]: 'Y' }, n)); g.push(pauliMatrix({ [q]: 'Z' }, n)); } const I = Q.eye(1 << n); for (let q = 0; q < n - 1; q++) g.push(Q.mul(Q.add(I, pauliMatrix({ [q]: 'Z' }, n), -1), Q.add(I, pauliMatrix({ [q + 1]: 'X' }, n), -1))); return g; }
 
-    window.addEventListener('load', () => {
-      init3D();
-      updateMetricsAndCharts();
-    });
-  </script>
+// ------------------------------------------------------------ charts
+Q.chartDefaults(); const C = Q.css;
+const varChart = new Chart($('varChart'), { type: 'line', data: { labels: [4, 6, 8], datasets: [
+  { label: 'EQNN (per bond)', data: [], borderColor: C('--accent'), backgroundColor: 'rgba(167,139,250,0.12)', fill: true, pointRadius: 5 },
+  { label: 'HEA', data: [], borderColor: C('--rose'), pointRadius: 5 } ] },
+  options: { scales: { x: Q.axis('qubits N'), y: Q.axis('mean Var[∂θ⟨H⟩]', { type: 'logarithmic' }) } } });
+const specChart = new Chart($('specChart'), { type: 'scatter', data: { datasets: [{ label: 'eigenvalues', data: [], backgroundColor: C('--accent'), pointRadius: 3 }] },
+  options: { scales: { x: Q.axis('index'), y: Q.axis('E / J') }, plugins: { legend: { display: false } } } });
+const dlaChart = new Chart($('dlaChart'), { type: 'bar', data: { labels: ['N=2', 'N=3', 'N=4'], datasets: [
+  { label: 'EQNN closure', data: [], backgroundColor: C('--accent') }, { label: 'closed form (even N)', data: [], backgroundColor: 'rgba(167,139,250,0.35)' }, { label: 'HEA closure', data: [], backgroundColor: C('--rose') }, { label: 'su(2ᴺ)', data: [], backgroundColor: 'rgba(251,113,133,0.3)' } ] },
+  options: { scales: { x: Q.axis(''), y: Q.axis('dim 𝔤', { type: 'logarithmic' }) } } });
+
+// ------------------------------------------------------------ UI
+const S = { n: 6, lattice: '1d_chain', delta: 1.0, samples: 20, depthLinear: true };
+function read() {
+  S.n = +$('N').value; S.lattice = $('lattice').value; S.delta = +$('delta').value; S.samples = +$('samples').value; S.depthLinear = $('depthLinear').checked;
+  if (S.lattice === 'kagome') { S.n = 6; $('N').value = 6; }
+  $('vN').textContent = S.n; $('vDelta').textContent = S.delta.toFixed(2); $('vSamples').textContent = S.samples;
+}
+function renderModel() {
+  const bonds = edges(S.n, S.lattice); const rng = Q.rng(3);
+  const pe = Float64Array.from({ length: 3 }, () => rng() * 2 * Math.PI); const ph = Float64Array.from({ length: (3 + 1) * S.n * 2 }, () => rng() * 2 * Math.PI);
+  const se = eqnnState(S.n, bonds, 3, pe), sh = heaState(S.n, 3, ph);
+  const s2e = totalSpin2(se), s2h = totalSpin2(sh);
+  $('sS2').textContent = Math.abs(s2e) < 1e-9 ? '0 (< 10⁻⁹)' : s2e.toExponential(2); $('sS2h').textContent = s2h.toFixed(3);
+  const H = hamiltonianMatrix(S.n, bonds, S.delta); const { w } = Q.eigh(H);
+  specChart.data.datasets[0].data = Array.from(w, (v, i) => ({ x: i, y: v })); specChart.update();
+  const mult = multiplicities(S.n); const cat = mult[0];
+  $('chipSectors').textContent = `E₀ = ${w[0].toFixed(4)} · singlet dim C_${S.n / 2} = ${cat} of 2^${S.n} = ${1 << S.n}`;
+  $('kv').innerHTML = `<dt>bonds</dt><dd>${bonds.length}</dd><dt>Hilbert dim</dt><dd>${1 << S.n}</dd><dt>sectors S : m_S</dt><dd>${Object.entries(mult).map(([k, v]) => `${k}:${v}`).join(' ')}</dd><dt>[H,S^α]</dt><dd>${S.delta === 1 ? '0 (SU(2))' : '≠ 0 (U(1) only)'}</dd><dt>DLA closed form</dt><dd>${dlaClosedForm(S.n)}</dd>`;
+  $('chipBonds').textContent = `${bonds.length} bonds · ${S.lattice}`;
+  drawLattice(bonds); drawSycamore(bonds);
+}
+function drawLattice(bonds) {
+  const svg = $('latticeSvg'); svg.innerHTML = ''; const n = S.n; const pos = [];
+  if (S.lattice === '1d_chain') for (let i = 0; i < n; i++) pos.push([30 + i * (260 / (n - 1)), 75]);
+  else if (S.lattice === 'ring') for (let i = 0; i < n; i++) pos.push([160 + 55 * Math.cos(2 * Math.PI * i / n), 75 + 55 * Math.sin(2 * Math.PI * i / n)]);
+  else if (S.lattice === '2d_grid') { const cols = n / 2; for (let i = 0; i < n; i++) pos.push([40 + (i % cols) * (240 / (cols - 1)), i < cols ? 40 : 110]); }
+  else for (let i = 0; i < n; i++) { const t = Math.floor(i / 3), k = i % 3; pos.push([70 + t * 120 + [0, 60, 30][k], [105, 105, 45][k]]); }
+  const ns = 'http://www.w3.org/2000/svg';
+  for (const [i, j] of bonds) { const l = document.createElementNS(ns, 'line'); l.setAttribute('x1', pos[i][0]); l.setAttribute('y1', pos[i][1]); l.setAttribute('x2', pos[j][0]); l.setAttribute('y2', pos[j][1]); l.setAttribute('stroke', C('--accent')); l.setAttribute('stroke-opacity', '0.55'); l.setAttribute('stroke-width', '2'); svg.appendChild(l); }
+  pos.forEach(([x, y], i) => { const c = document.createElementNS(ns, 'circle'); c.setAttribute('cx', x); c.setAttribute('cy', y); c.setAttribute('r', 11); c.setAttribute('fill', C('--surface-3')); c.setAttribute('stroke', C('--accent')); c.setAttribute('stroke-width', '1.5'); svg.appendChild(c); const t = document.createElementNS(ns, 'text'); t.setAttribute('x', x); t.setAttribute('y', y + 4); t.setAttribute('text-anchor', 'middle'); t.setAttribute('fill', C('--text')); t.setAttribute('font-size', '10'); t.setAttribute('font-family', 'JetBrains Mono, monospace'); t.textContent = i; svg.appendChild(t); });
+}
+function drawSycamore(bonds) {
+  const el = $('syc'); el.innerHTML = ''; const W = 4, rows = 2; el.style.gridTemplateColumns = `repeat(${W}, 1fr)`; const place = {}; let adjacentAll = true;
+  for (let i = 0; i < S.n; i++) { const r = Math.floor(i / W), k = i % W; const c = r % 2 === 0 ? k : W - 1 - k; place[i] = [r, c]; }
+  for (const [i, j] of bonds) { const a = place[i], b = place[j]; if (!a || !b || Math.abs(a[0] - b[0]) + Math.abs(a[1] - b[1]) !== 1) adjacentAll = false; }
+  for (let r = 0; r < rows; r++) for (let c = 0; c < W; c++) { const q = Object.keys(place).find(k => place[k][0] === r && place[k][1] === c); const d = document.createElement('div'); d.className = 'q' + (q !== undefined ? ' on' : ''); d.textContent = q !== undefined ? 'q' + q : '·'; el.appendChild(d); }
+  $('chipSyc').textContent = adjacentAll ? `all ${bonds.length} bonds adjacent · ${bonds.length} FSim + ${2 * bonds.length} CNOT per layer` : 'some bonds need routing (SWAPs)';
+}
+async function sampleVariance() {
+  read(); const btn = $('btnVar'); btn.disabled = true; btn.textContent = '⏳ sampling…'; const Ns = [4, 6, 8]; const eq = [], he = []; const rng = Q.rng(42);
+  for (let idx = 0; idx < Ns.length; idx++) {
+    const n = Ns[idx]; const L = S.depthLinear ? n : 2; const bonds = edges(n, S.lattice === 'kagome' ? '1d_chain' : S.lattice);
+    const ce = p => energy(eqnnState(n, bonds, L, p), bonds, S.delta); const ch = p => energy(heaState(n, L, p), bonds, S.delta);
+    const ge = [], gh = [];
+    for (let s = 0; s < S.samples; s++) { ge.push(gradient(ce, Float64Array.from({ length: L }, () => rng() * 2 * Math.PI))); gh.push(gradient(ch, Float64Array.from({ length: (L + 1) * n * 2 }, () => rng() * 2 * Math.PI))); if (s % 4 === 3) { $('varProg').style.width = ((idx + s / S.samples) / Ns.length * 100).toFixed(0) + '%'; await new Promise(r => setTimeout(r, 0)); } }
+    const meanVar = G => { const P = G[0].length; let acc = 0; for (let k = 0; k < P; k++) { const col = G.map(g => g[k]); const m = col.reduce((a, b) => a + b, 0) / col.length; acc += col.reduce((a, b) => a + (b - m) ** 2, 0) / col.length; } return acc / P; };
+    eq.push(meanVar(ge) / (n - 1) ** 2); he.push(meanVar(gh));
+  }
+  varChart.data.datasets[0].data = eq; varChart.data.datasets[1].data = he; varChart.update();
+  const fit = ys => { const xs = Ns, ly = ys.map(v => Math.log2(Math.max(v, 1e-300))); const mx = 6, my = ly.reduce((a, b) => a + b, 0) / 3; let num = 0, den = 0; xs.forEach((x, i) => { num += (x - mx) * (ly[i] - my); den += (x - mx) ** 2; }); return num / den; };
+  const se = fit(eq), sh = fit(he);
+  $('sSlopeH').textContent = sh.toFixed(2) + ' / qubit'; $('sSlopeHsub').textContent = `Var ∝ 2^(${sh.toFixed(2)}·N) · ${S.depthLinear ? 'L = N' : 'L = 2'}`;
+  $('sSlopeE').textContent = se.toFixed(2) + ' / qubit'; $('sSlopeEsub').textContent = `per-bond · ${se > sh ? 'slower decay than HEA' : 'faster than HEA'}`;
+  $('chipVar').textContent = `${S.samples} draws per N · L = ${S.depthLinear ? 'N' : '2'} · Δ = ${S.delta.toFixed(2)}`; $('varNote').textContent = `Var[∂θ⟨H⟩] over uniformly random parameters, mean over parameters. Depth L = ${S.depthLinear ? 'N' : '2'}.`;
+  btn.disabled = false; btn.textContent = '⚡ Sample gradients for N = 4, 6, 8'; $('varProg').style.width = '100%';
+}
+async function computeDLA() {
+  const btn = $('btnDLA'); btn.disabled = true; const log = []; const eqD = [], cf = [], heD = [], su = [];
+  for (const n of [2, 3, 4]) {
+    await new Promise(r => setTimeout(r, 0));
+    const bonds = edges(n, '1d_chain'); const t0 = performance.now();
+    const e = dlaClosure(eqnnGenerators(n, bonds)); const h = n <= 3 ? dlaClosure(heaGenerators(n)) : null;
+    eqD.push(e.dim); cf.push(n % 2 === 0 ? dlaClosedForm(n) : null); heD.push(h ? h.dim : null); su.push(4 ** n - 1);
+    log.push(`N=${n}: EQNN dim ${e.dim} ${e.closed ? '(closed)' : '(cap)'} rounds ${e.rounds.join('→')}${n % 2 === 0 ? ` · closed form ${dlaClosedForm(n)}` : ''}${h ? ` · HEA ${h.dim} = su(${1 << n})` : ' · HEA su(16) = 255 (skipped in browser)'} · ${((performance.now() - t0) / 1000).toFixed(2)} s`);
+    $('dlaLog').textContent = log.join('\n');
+  }
+  dlaChart.data.datasets[0].data = eqD; dlaChart.data.datasets[1].data = cf; dlaChart.data.datasets[2].data = heD; dlaChart.data.datasets[3].data = su; dlaChart.update();
+  btn.disabled = false;
+}
+['N', 'delta', 'samples'].forEach(id => $(id).addEventListener('input', () => { read(); renderModel(); }));
+$('lattice').addEventListener('change', () => { read(); renderModel(); }); $('depthLinear').addEventListener('change', read);
+$('btnVar').addEventListener('click', sampleVariance); $('btnDLA').addEventListener('click', computeDLA);
+
+(async () => {
+  read(); renderModel();
+  // self-test: EQNN state has <S²> = 0 and the 4-qubit chain DLA closes to 12
+  const s = eqnnState(4, edges(4, '1d_chain'), 3, [0.4, 1.3, 2.2]); const s2 = Math.abs(totalSpin2(s)); const d = dlaClosure(eqnnGenerators(4, edges(4, '1d_chain'))).dim;
+  const ok = s2 < 1e-9 && d === 12; const el = $('selftest'); el.className = 'chip ' + (ok ? 'ok' : 'bad'); el.innerHTML = `<span class="dot"></span> self-test ${ok ? 'passed' : 'FAILED'}: ⟨S²⟩ = ${s2.toExponential(1)}, DLA(EQNN, N=4) = ${d}`;
+  await computeDLA(); await sampleVariance();
+})();
+})();
+</script>
 </body>
 </html>
