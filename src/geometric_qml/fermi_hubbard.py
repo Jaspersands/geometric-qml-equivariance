@@ -1,67 +1,148 @@
 """
-Fermi-Hubbard Model with SU(2)_spin x SU(2)_charge Symmetries.
+Fermi–Hubbard chain with its SU(2)_spin × SU(2)_charge (η-pairing) symmetries.
 
-Implements Jordan-Wigner mapped fermionic hopping and On-site Coulomb interaction:
-    H = -t * sum_{<i,j>, sigma} (c_{i sigma}^dagger c_{j sigma} + h.c.) + U * sum_i n_{i up} n_{i down}
+    H = −t Σ_{⟨ij⟩σ} (c†_{iσ} c_{jσ} + h.c.) + U Σ_i n_{i↑} n_{i↓}        (standard)
+    H = −t Σ (…) + U Σ_i (n_{i↑} − ½)(n_{i↓} − ½)                          (particle-hole symmetric)
+
+Qubits are Jordan–Wigner mapped with ordering (site 0 ↑, site 0 ↓, site 1 ↑, …).
+The spin SU(2) generators commute with both forms; the charge (η-pairing) SU(2)
+generators commute with the particle-hole symmetric form on bipartite lattices.
 """
 
 from __future__ import annotations
+
+from functools import reduce
+from typing import Dict, List, Optional, Tuple
+
 import numpy as np
-from typing import List, Tuple, Dict, Any, Optional
+
+from .models import PAULIS
 
 try:
     import pennylane as qml
+
     HAS_PENNYLANE = True
-except ImportError:
+except ImportError:  # pragma: no cover
     HAS_PENNYLANE = False
     qml = None
+
+_SIGMA_MINUS = np.array([[0, 1], [0, 0]], dtype=np.complex128)  # |0⟩⟨1|: annihilates an occupied mode
+
+
+def jordan_wigner_annihilation(p: int, n_qubits: int) -> np.ndarray:
+    """c_p = Z_0 ⋯ Z_{p−1} σ⁻_p."""
+    ops = [PAULIS["Z"]] * p + [_SIGMA_MINUS] + [PAULIS["I"]] * (n_qubits - p - 1)
+    return reduce(np.kron, ops)
 
 
 class FermiHubbardChain:
     """
-    Fermi-Hubbard model on L sites (2L spin-orbitals / qubits).
-    Qubit ordering: site 0 up (0), site 0 down (1), site 1 up (2), site 1 down (3), ...
+    Parameters
+    ----------
+    n_sites : lattice sites L (2L qubits)
+    hopping_t, on_site_u : t and U
+    particle_hole_symmetric : use U(n↑−½)(n↓−½) instead of U n↑n↓
+    periodic : close the chain into a ring (must be bipartite, i.e. even L, for η symmetry)
     """
 
-    def __init__(self, n_sites: int = 2, hopping_t: float = 1.0, on_site_u: float = 4.0):
-        self.n_sites = n_sites
-        self.n_qubits = 2 * n_sites
-        self.t = hopping_t
-        self.u = on_site_u
+    def __init__(
+        self,
+        n_sites: int = 2,
+        hopping_t: float = 1.0,
+        on_site_u: float = 4.0,
+        particle_hole_symmetric: bool = False,
+        periodic: bool = False,
+    ):
+        self.n_sites = int(n_sites)
+        self.n_qubits = 2 * self.n_sites
+        self.t = float(hopping_t)
+        self.u = float(on_site_u)
+        self.symmetric = bool(particle_hole_symmetric)
+        self.periodic = bool(periodic)
+        self._c = [jordan_wigner_annihilation(p, self.n_qubits) for p in range(self.n_qubits)]
 
-    def get_pennylane_hamiltonian(self) -> "qml.Hamiltonian":
-        """Builds Jordan-Wigner mapped Fermi-Hubbard Hamiltonian in PennyLane."""
+    # ----------------------------------------------------------------- #
+    def up(self, i: int) -> int:
+        return 2 * i
+
+    def down(self, i: int) -> int:
+        return 2 * i + 1
+
+    def bonds(self) -> List[Tuple[int, int]]:
+        b = [(i, i + 1) for i in range(self.n_sites - 1)]
+        if self.periodic and self.n_sites > 2:
+            b.append((self.n_sites - 1, 0))
+        return b
+
+    def _n(self, p: int) -> np.ndarray:
+        return self._c[p].conj().T @ self._c[p]
+
+    def get_matrix(self) -> np.ndarray:
+        dim = 2**self.n_qubits
+        H = np.zeros((dim, dim), dtype=np.complex128)
+        for i, j in self.bonds():
+            for spin in (self.up, self.down):
+                hop = self._c[spin(i)].conj().T @ self._c[spin(j)]
+                H -= self.t * (hop + hop.conj().T)
+        I = np.eye(dim, dtype=np.complex128)
+        for i in range(self.n_sites):
+            nu, nd = self._n(self.up(i)), self._n(self.down(i))
+            if self.symmetric:
+                H += self.u * (nu - 0.5 * I) @ (nd - 0.5 * I)
+            else:
+                H += self.u * nu @ nd
+        return H
+
+    def get_pennylane_hamiltonian(self):
+        """Same operator as ``get_matrix`` expressed as a PennyLane Hamiltonian."""
         if not HAS_PENNYLANE:
             raise RuntimeError("PennyLane required.")
-
-        coeffs = []
-        ops = []
-
-        # 1. Hopping terms: -t/2 (X_i Z ... Z X_j + Y_i Z ... Z Y_j)
-        for i in range(self.n_sites - 1):
-            # Up spin hopping: qubit 2*i <-> 2*(i+1)
-            q_i_up = 2 * i
-            q_j_up = 2 * (i + 1)
-            coeffs.extend([-0.5 * self.t, -0.5 * self.t])
-            ops.append(qml.PauliX(q_i_up) @ qml.PauliZ(q_i_up + 1) @ qml.PauliX(q_j_up))
-            ops.append(qml.PauliY(q_i_up) @ qml.PauliZ(q_i_up + 1) @ qml.PauliY(q_j_up))
-
-            # Down spin hopping: qubit 2*i+1 <-> 2*(i+1)+1
-            q_i_dn = 2 * i + 1
-            q_j_dn = 2 * (i + 1) + 1
-            coeffs.extend([-0.5 * self.t, -0.5 * self.t])
-            ops.append(qml.PauliX(q_i_dn) @ qml.PauliZ(q_i_dn + 1) @ qml.PauliX(q_j_dn))
-            ops.append(qml.PauliY(q_i_dn) @ qml.PauliZ(q_i_dn + 1) @ qml.PauliY(q_j_dn))
-
-        # 2. On-site interaction: U * n_up * n_down = U/4 (I - Z_up - Z_down + Z_up Z_down)
+        coeffs, ops = [], []
+        for i, j in self.bonds():
+            for spin in (self.up, self.down):
+                a, b = spin(i), spin(j)
+                lo, hi = min(a, b), max(a, b)
+                zs = [qml.PauliZ(k) for k in range(lo + 1, hi)]
+                for P in (qml.PauliX, qml.PauliY):
+                    op = P(lo)
+                    for z in zs:
+                        op = op @ z
+                    op = op @ P(hi)
+                    coeffs.append(-0.5 * self.t)
+                    ops.append(op)
         for i in range(self.n_sites):
-            q_up = 2 * i
-            q_dn = 2 * i + 1
-            coeffs.append(0.25 * self.u)
-            ops.append(qml.PauliZ(q_up) @ qml.PauliZ(q_dn))
-
-            coeffs.extend([-0.25 * self.u, -0.25 * self.u])
-            ops.append(qml.PauliZ(q_up))
-            ops.append(qml.PauliZ(q_dn))
-
+            u_q, d_q = self.up(i), self.down(i)
+            # n↑ n↓ = ¼(1 − Z↑ − Z↓ + Z↑Z↓);  (n↑−½)(n↓−½) = ¼ Z↑Z↓
+            coeffs.append(0.25 * self.u); ops.append(qml.PauliZ(u_q) @ qml.PauliZ(d_q))
+            if not self.symmetric:
+                coeffs += [-0.25 * self.u, -0.25 * self.u, 0.25 * self.u]
+                ops += [qml.PauliZ(u_q), qml.PauliZ(d_q), qml.Identity(u_q)]
         return qml.Hamiltonian(coeffs, ops)
+
+    # ----------------------------------------------------------------- #
+    def number_operator(self) -> np.ndarray:
+        return sum(self._n(p) for p in range(self.n_qubits))
+
+    def spin_generators(self) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+        """S^z = ½Σ(n↑−n↓), S⁺ = Σ c†↑ c↓ → (S^x, S^y, S^z)."""
+        Sz = 0.5 * sum(self._n(self.up(i)) - self._n(self.down(i)) for i in range(self.n_sites))
+        Sp = sum(self._c[self.up(i)].conj().T @ self._c[self.down(i)] for i in range(self.n_sites))
+        Sm = Sp.conj().T
+        return 0.5 * (Sp + Sm), (Sp - Sm) / (2j), Sz
+
+    def charge_generators(self) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+        """η⁺ = Σ(−1)^i c†_{i↑} c†_{i↓}, η^z = ½Σ(n_i − 1) → (η^x, η^y, η^z)."""
+        dim = 2**self.n_qubits
+        eta_p = sum(((-1) ** i) * self._c[self.up(i)].conj().T @ self._c[self.down(i)].conj().T for i in range(self.n_sites))
+        eta_m = eta_p.conj().T
+        eta_z = 0.5 * (self.number_operator() - self.n_sites * np.eye(dim))
+        return 0.5 * (eta_p + eta_m), (eta_p - eta_m) / (2j), eta_z
+
+    def ground_energy(self, n_particles: Optional[int] = None) -> float:
+        """Lowest eigenvalue, optionally within the fixed-particle-number sector."""
+        H = self.get_matrix()
+        if n_particles is None:
+            return float(np.linalg.eigvalsh(H)[0])
+        dim = 2**self.n_qubits
+        keep = [b for b in range(dim) if bin(b).count("1") == n_particles]
+        return float(np.linalg.eigvalsh(H[np.ix_(keep, keep)])[0])

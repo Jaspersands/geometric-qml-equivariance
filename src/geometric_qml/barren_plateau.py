@@ -119,37 +119,56 @@ def fit_variance_scaling(qubit_counts: Sequence[int], variances: Sequence[float]
 
 
 def run_barren_plateau_scaling_study(
-    qubit_list: Sequence[int] = (2, 4, 6, 8),
-    n_layers: int = 2,
+    qubit_list: Sequence[int] = (4, 6, 8),
+    n_layers: Optional[int] = None,
     n_samples: int = 30,
     seed: int = 42,
     ansatz_types: Sequence[str] = ("equivariant", "hea"),
+    depth: str = "linear",
+    normalize_equivariant: bool = True,
 ) -> Dict[str, Any]:
     """
-    Gradient-variance scaling for several ansätze across qubit counts, with a
-    log-linear fit per ansatz. Returns per-ansatz variances (of ∂θ₀, averaged
-    over the parameter vector as ``var_mean``), the raw gradient samples, and fits.
+    Gradient-variance scaling for several ansätze across qubit counts.
+
+    ``depth='linear'`` uses L = N layers (the regime in which barren plateaus
+    appear; McClean et al. 2018); ``depth='fixed'`` uses ``n_layers`` for all N.
+    With ``normalize_equivariant`` the weight-shared EQNN variance is divided by
+    (number of bonds)² so that it measures the gradient *per bond* — its single
+    angle multiplies a sum over all bonds, otherwise the raw variance grows with N.
+
+    Returns per-ansatz ``variances`` (of ∂θ₀), ``var_means`` (mean over all
+    parameters), raw ``samples``, log-linear ``fits`` of both, and the depths used.
+    N = 2 is deliberately excluded from the defaults: the EQNN cost is constant
+    there (the singlet is the unique S = 0 state), so its gradient vanishes.
     """
     variances: Dict[str, List[float]] = {a: [] for a in ansatz_types}
     var_means: Dict[str, List[float]] = {a: [] for a in ansatz_types}
     samples: Dict[str, List[np.ndarray]] = {a: [] for a in ansatz_types}
+    depths: List[int] = []
     for n_q in qubit_list:
+        L = int(n_q) if depth == "linear" else int(n_layers if n_layers is not None else 2)
+        depths.append(L)
         for a in ansatz_types:
-            analyzer = GradientVarianceAnalyzer(n_qubits=n_q, ansatz_type=a, n_layers=n_layers)
+            analyzer = GradientVarianceAnalyzer(n_qubits=n_q, ansatz_type=a, n_layers=L)
             grads = analyzer.sample_gradients(n_samples=n_samples, seed=seed)
-            variances[a].append(float(np.var(grads[:, 0])))
-            var_means[a].append(float(np.mean(np.var(grads, axis=0))))
+            norm = (n_q - 1) ** 2 if (a == "equivariant" and normalize_equivariant) else 1.0
+            variances[a].append(float(np.var(grads[:, 0]) / norm))
+            var_means[a].append(float(np.mean(np.var(grads, axis=0)) / norm))
             samples[a].append(grads)
     fits = {a: fit_variance_scaling(qubit_list, variances[a]) for a in ansatz_types}
+    fits_mean = {a: fit_variance_scaling(qubit_list, var_means[a]) for a in ansatz_types}
     out = {
         "qubit_counts": list(qubit_list),
+        "depths": depths,
+        "depth_mode": depth,
         "variances": variances,
         "var_means": var_means,
         "samples": samples,
         "fits": fits,
+        "fits_mean": fits_mean,
         "n_layers": n_layers,
+        "normalized_equivariant": normalize_equivariant,
     }
-    # v0.2 keys
     if "equivariant" in variances:
         out["eqnn_variances"] = variances["equivariant"]
     if "hea" in variances:

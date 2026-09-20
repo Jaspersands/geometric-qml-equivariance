@@ -35,12 +35,23 @@ def test_gradient_variance_sampling_shapes_and_positivity():
         GradientVarianceAnalyzer(n_qubits=4, ansatz_type="nonsense")
 
 
-def test_scaling_study_hea_decays_faster_than_eqnn():
-    res = run_barren_plateau_scaling_study(qubit_list=[2, 4, 6], n_layers=2, n_samples=25, seed=42)
+def test_scaling_study_hea_plateaus_while_eqnn_decays_polynomially():
+    # Depth L = N (the barren-plateau regime). HEA's mean gradient variance must
+    # fall exponentially (log2 slope clearly negative); the EQNN per-bond
+    # variance decays only polynomially, i.e. much more slowly.
+    res = run_barren_plateau_scaling_study(qubit_list=[4, 6, 8], n_samples=25, seed=42, depth="linear")
+    assert res["depths"] == [4, 6, 8]
     assert set(res["variances"]) == {"equivariant", "hea"}
-    assert res["fits"]["hea"]["slope_log2"] < res["fits"]["equivariant"]["slope_log2"]
-    assert res["variances"]["hea"][-1] < res["variances"]["equivariant"][-1]
+    hea_slope = res["fits_mean"]["hea"]["slope_log2"]
+    eqnn_slope = res["fits_mean"]["equivariant"]["slope_log2"]
+    assert hea_slope < -0.4
+    assert eqnn_slope > hea_slope + 0.2
     assert len(res["samples"]["hea"]) == 3
+
+
+def test_scaling_study_fixed_depth_option():
+    res = run_barren_plateau_scaling_study(qubit_list=[4, 6], n_layers=2, n_samples=5, seed=1, depth="fixed")
+    assert res["depths"] == [2, 2]
 
 
 def test_vqe_is_deterministic_and_converges_with_singlet_purity():
