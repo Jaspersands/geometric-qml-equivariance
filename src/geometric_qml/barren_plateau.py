@@ -1,14 +1,14 @@
 """
-Barren Plateau and Gradient Variance Scaling Analyzer.
+Gradient-variance (barren plateau) analysis.
 
-Calculates the statistical variance of cost function gradients:
-    Var_{theta}[partial_{theta_k} <H>]
-across qubit counts N and circuit depths L, comparing Equivariant QNNs vs. HEA.
+Samples ∂_θ ⟨H⟩ at uniformly random parameters with PennyLane backprop and
+reports Var[∂_θ₀⟨H⟩], the mean variance over all parameters, and log-linear
+fits of the variance versus qubit number for several ansätze.
 """
 
 from __future__ import annotations
 import numpy as np
-from typing import Dict, List, Tuple, Optional, Any
+from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 try:
     import pennylane as qml
@@ -103,33 +103,55 @@ class GradientVarianceAnalyzer:
         }
 
 
+def fit_variance_scaling(qubit_counts: Sequence[int], variances: Sequence[float]) -> Dict[str, float]:
+    """
+    Least-squares fit of log₂ Var = slope·N + intercept. A slope near −1 (per
+    qubit) is the hallmark of a barren plateau (Var ∝ 2^{−N}); slopes near 0
+    indicate trainability.
+    """
+    x = np.asarray(qubit_counts, dtype=float)
+    y = np.log2(np.maximum(np.asarray(variances, dtype=float), 1e-300))
+    slope, intercept = np.polyfit(x, y, 1)
+    pred = slope * x + intercept
+    ss_res = float(np.sum((y - pred) ** 2))
+    ss_tot = float(np.sum((y - y.mean()) ** 2)) or 1e-300
+    return {"slope_log2": float(slope), "intercept_log2": float(intercept), "r2": 1.0 - ss_res / ss_tot}
+
+
 def run_barren_plateau_scaling_study(
-    qubit_list: List[int] = [2, 4, 6, 8],
+    qubit_list: Sequence[int] = (2, 4, 6, 8),
     n_layers: int = 2,
     n_samples: int = 30,
     seed: int = 42,
+    ansatz_types: Sequence[str] = ("equivariant", "hea"),
 ) -> Dict[str, Any]:
     """
-    Executes comparative gradient variance scaling study across qubit counts
-    for Equivariant QNN vs. Hardware-Efficient Ansatz (HEA).
+    Gradient-variance scaling for several ansätze across qubit counts, with a
+    log-linear fit per ansatz. Returns per-ansatz variances (of ∂θ₀, averaged
+    over the parameter vector as ``var_mean``), the raw gradient samples, and fits.
     """
-    eqnn_vars = []
-    hea_vars = []
-
+    variances: Dict[str, List[float]] = {a: [] for a in ansatz_types}
+    var_means: Dict[str, List[float]] = {a: [] for a in ansatz_types}
+    samples: Dict[str, List[np.ndarray]] = {a: [] for a in ansatz_types}
     for n_q in qubit_list:
-        # Equivariant QNN
-        analyzer_eqnn = GradientVarianceAnalyzer(n_qubits=n_q, ansatz_type="equivariant", n_layers=n_layers)
-        res_eqnn = analyzer_eqnn.compute_gradient_variance(n_samples=n_samples, seed=seed)
-        eqnn_vars.append(res_eqnn["var_param_0"])
-
-        # HEA Baseline
-        analyzer_hea = GradientVarianceAnalyzer(n_qubits=n_q, ansatz_type="hea", n_layers=n_layers)
-        res_hea = analyzer_hea.compute_gradient_variance(n_samples=n_samples, seed=seed)
-        hea_vars.append(res_hea["var_param_0"])
-
-    return {
+        for a in ansatz_types:
+            analyzer = GradientVarianceAnalyzer(n_qubits=n_q, ansatz_type=a, n_layers=n_layers)
+            grads = analyzer.sample_gradients(n_samples=n_samples, seed=seed)
+            variances[a].append(float(np.var(grads[:, 0])))
+            var_means[a].append(float(np.mean(np.var(grads, axis=0))))
+            samples[a].append(grads)
+    fits = {a: fit_variance_scaling(qubit_list, variances[a]) for a in ansatz_types}
+    out = {
         "qubit_counts": list(qubit_list),
-        "eqnn_variances": eqnn_vars,
-        "hea_variances": hea_vars,
+        "variances": variances,
+        "var_means": var_means,
+        "samples": samples,
+        "fits": fits,
         "n_layers": n_layers,
     }
+    # v0.2 keys
+    if "equivariant" in variances:
+        out["eqnn_variances"] = variances["equivariant"]
+    if "hea" in variances:
+        out["hea_variances"] = variances["hea"]
+    return out
