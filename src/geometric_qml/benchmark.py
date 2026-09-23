@@ -25,7 +25,7 @@ def run_benchmark(as_json: bool = False, quick: bool = False) -> int:
         (log.append(msg) if log is not None else print(msg))
 
     say("=" * 70)
-    say("GEOMETRIC QML: SU(2) EQUIVARIANCE, DLA DIMENSION AND BARREN PLATEAUS (v0.3)")
+    say("GEOMETRIC QML: SU(2) EQUIVARIANCE, DLA DIMENSION AND BARREN PLATEAUS (v0.4)")
     say("=" * 70)
 
     say("\n1. Singlet (Catalan) sector vs full Hilbert space")

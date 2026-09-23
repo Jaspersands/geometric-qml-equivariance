@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.4.0 — 2026-09-23
+
+Changes from an adversarial review of 0.3.
+
+### Fixed
+- `kagome` was a chain of triangles joined by single bonds. It is now the kagome lattice on `shape=(Lx, Ly)` unit cells (`kagome_edges`, `kagome_positions`); on the torus every site has coordination 4 and lies in two triangles, and the 12-site cluster reproduces E₀/N = −0.45374.
+- Fermi–Hubbard operators are sparse (a dense L = 8 build needed about 70 GB per operator); ground energies use Lanczos in fixed (N, S_z) sectors. `get_matrix` refuses dense output beyond 14 qubits.
+
+### Added
+- Lie algebra closure that commutes generators with the newest elements only, batched with pivoted QR, plus an SU(2)-reduced representation (`su2_reduced_generators`, `equivariant_dla_dimension_by_closure`) that verifies the closed form at N = 8 (1426).
+- `spin_multiplicities` in closed form (replaces a dense Casimir diagonalisation).
+- Sparse Heisenberg models (`get_sparse_matrix`, `pauli_string_sparse`) with Lanczos ground states beyond 10 qubits.
+- `QuantumGraphNeuralNetwork(trotter_steps=r)`: second-order Trotterisation into native exchange gates (IsingXX·IsingYY·IsingZZ), exact SU(2) equivariance, measured permutation error (`equivariance_error`, `su2_equivariance_error`); optional distance-2 exchange terms.
+
+### Changed
+- Tests: 49 → 61.
+
 ## 0.3.0 — 2026-09-21
 
 ### Fixed (correctness)

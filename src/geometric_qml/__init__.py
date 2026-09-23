@@ -29,7 +29,7 @@ from .fermi_hubbard import FermiHubbardChain, jordan_wigner_annihilation
 from .qgnn import QuantumGraphNeuralNetwork, permutation_matrix
 from .export_openfermion import export_heisenberg_to_dict, hamiltonian_to_string, save_hamiltonian_json
 
-__version__ = "0.3.0"
+__version__ = "0.4.0"
 __all__ = [
     "HeisenbergSpinChain", "lattice_edges", "LATTICES", "pauli_string_matrix",
     "get_su2_generators", "get_casimir_operator", "compute_singlet_dimension", "total_spin_sectors",
