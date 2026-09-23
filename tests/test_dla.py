@@ -107,3 +107,44 @@ def test_dla_analyzer_direct_generators():
     res = DynamicalLieAlgebraAnalyzer([sx, sz]).compute_dla_dimension()
     assert res["dla_dimension"] == 3  # su(2)
     assert res["iteration_dimensions"][0] == 2
+
+
+def test_spin_multiplicities_match_casimir():
+    from geometric_qml.dla import spin_multiplicities
+
+    for n in (2, 3, 4, 5, 6):
+        evals = np.round(np.linalg.eigvalsh(get_casimir_operator(n)), 6)
+        for S, m in spin_multiplicities(n).items():
+            assert int(np.sum(np.isclose(evals, S * (S + 1)))) == m * (2 * S + 1)
+
+
+@pytest.mark.parametrize("n", [4, 6])
+def test_su2_reduced_closure_equals_dense_closure(n):
+    from geometric_qml.dla import equivariant_dla_dimension_by_closure
+
+    edges = [(i, i + 1) for i in range(n - 1)]
+    dense = analyze_ansatz(EquivariantQuantumAnsatz(n_qubits=n, n_layers=1, weight_sharing=False))
+    reduced = equivariant_dla_dimension_by_closure(edges, n)
+    assert reduced["closed"] and reduced["dla_dimension"] == dense["dla_dimension"] == equivariant_dla_dimension_formula(n)
+    assert reduced["full_su_dimension"] == 4**n - 1
+
+
+def test_eight_qubit_dla_matches_schur_weyl_formula():
+    """N = 8 is out of reach for the dense closure (65 536-dim vectors); the reduced one is exact."""
+    from geometric_qml.dla import equivariant_dla_dimension_by_closure
+
+    res = equivariant_dla_dimension_by_closure([(i, i + 1) for i in range(7)], 8)
+    assert res["closed"] and res["dla_dimension"] == 1426 == equivariant_dla_dimension_formula(8)
+
+
+def test_closure_of_generic_and_commuting_generators():
+    rng = np.random.default_rng(3)
+    gens = []
+    for _ in range(2):
+        a = rng.normal(size=(4, 4)) + 1j * rng.normal(size=(4, 4))
+        gens.append(a + a.conj().T)
+    res = DynamicalLieAlgebraAnalyzer(gens).compute_dla_dimension()
+    assert res["dla_dimension"] == 15                       # two generic generators generate su(4)
+    x = np.diag([1.0, -1.0, 0.0, 0.0]).astype(complex)
+    y = np.diag([0.0, 0.0, 1.0, -1.0]).astype(complex)
+    assert DynamicalLieAlgebraAnalyzer([x, y]).compute_dla_dimension()["dla_dimension"] == 2   # abelian

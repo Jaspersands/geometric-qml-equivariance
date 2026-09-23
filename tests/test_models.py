@@ -31,7 +31,8 @@ def test_singlet_dimension_catalan():
         ("2d_grid", 4, False, 4),      # 2×2 square
         ("2d_grid", 6, False, 7),      # 2×3: 4 horizontal + 3 vertical
         ("triangular", 6, False, 9),   # ladder: 5 chain + 4 diagonals
-        ("kagome", 6, False, 7),       # two corner-sharing triangles: 3+3 edges + 1 link
+        ("kagome", 12, False, 16),     # 2×2 cells, open: 4 up-triangles, 1 full down-triangle, 1 + 2 partial bonds
+        ("kagome", 12, True, 24),      # 2×2 torus: 2N bonds, coordination 4
     ],
 )
 def test_lattice_edge_counts(lattice, n, periodic, expected):
@@ -58,12 +59,40 @@ def test_hamiltonian_matrix_without_pennylane_matches_pennylane():
     assert np.allclose(m_np, m_np.conj().T)
 
 
-@pytest.mark.parametrize("lattice", ["1d_chain", "ring", "2d_grid", "triangular", "kagome"])
-def test_isotropic_model_commutes_with_total_spin(lattice):
-    model = HeisenbergSpinChain(n_qubits=6, anisotropy_delta=1.0, lattice_type=lattice)
-    H = model.get_matrix(backend="numpy")
-    for S in get_su2_generators(6):
-        assert np.linalg.norm(H @ S - S @ H) < 1e-9
+@pytest.mark.parametrize("lattice,n", [("1d_chain", 6), ("ring", 6), ("2d_grid", 6), ("triangular", 6), ("kagome", 12)])
+def test_isotropic_model_commutes_with_total_spin(lattice, n):
+    model = HeisenbergSpinChain(n_qubits=n, anisotropy_delta=1.0, lattice_type=lattice)
+    H = model.get_sparse_matrix()
+    for S in get_su2_generators(n, sparse=True):
+        assert abs(H @ S - S @ H).max() < 1e-12
+
+
+def test_kagome_is_corner_sharing_with_coordination_four():
+    from collections import Counter
+    from geometric_qml.models import kagome_edges, kagome_positions
+
+    for lx, ly in ((2, 2), (3, 2), (3, 3)):
+        n = 3 * lx * ly
+        e = kagome_edges(lx, ly, periodic=True)
+        deg = Counter(v for b in e for v in b)
+        assert set(deg.values()) == {4} and len(e) == 2 * n
+        adj = {i: set() for i in range(n)}
+        for i, j in e:
+            adj[i].add(j); adj[j].add(i)
+        tri = [(i, j, k) for i in range(n) for j in adj[i] if j > i for k in adj[i] & adj[j] if k > j]
+        per_site = Counter(v for t in tri for v in t)
+        assert len(tri) == 2 * n // 3 and set(per_site.values()) == {2}   # every site in exactly two triangles
+    pos = kagome_positions(3, 3)
+    assert np.allclose([np.linalg.norm(pos[i] - pos[j]) for i, j in kagome_edges(3, 3)], 1.0)  # open bonds are unit length
+    with pytest.raises(ValueError):
+        lattice_edges(6, "kagome")
+
+
+def test_kagome_12_site_ground_energy_matches_exact_diagonalisation_literature():
+    """E₀/N = −0.45374 J (S·S units) for the 12-site kagome torus (Leung & Elser, PRB 47, 5459 (1993))."""
+    m = HeisenbergSpinChain(12, lattice_type="kagome", periodic_boundary=True)
+    e0, _ = m.exact_ground_state()
+    assert e0 / 12 / 4 == pytest.approx(-0.45374, abs=5e-5)
 
 
 def test_anisotropic_model_breaks_su2():

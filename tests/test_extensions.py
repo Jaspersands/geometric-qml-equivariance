@@ -156,3 +156,56 @@ def test_cli_sectors_and_variance(capsys):
     assert cli_main(["variance", "--qubits", "4", "--ansatz", "equivariant", "--samples", "4", "--json"]) == 0
     out = json.loads(capsys.readouterr().out)
     assert out["var_param_0"] > 0
+
+
+def test_fermi_hubbard_is_sparse_and_scales_to_sixteen_qubits():
+    """L = 8 would need 70 GB per dense operator; sparse + sector Lanczos takes well under a second."""
+    L = 8
+    fh = FermiHubbardChain(n_sites=L, hopping_t=1.0, on_site_u=0.0)
+    H = fh.get_matrix(sparse=True)
+    assert H.shape == (2**16, 2**16) and H.nnz < 10 * 2**16
+    with pytest.raises(MemoryError):
+        fh.get_matrix()
+    eps = np.sort(-2 * np.cos(np.pi * np.arange(1, L + 1) / (L + 1)))
+    assert fh.ground_energy(n_particles=L, sz=0.0) == pytest.approx(2 * eps[: L // 2].sum(), abs=1e-8)   # free fermions
+    interacting = FermiHubbardChain(n_sites=L, hopping_t=1.0, on_site_u=4.0).ground_energy(n_particles=L, sz=0.0)
+    assert interacting > 2 * eps[: L // 2].sum()                                       # repulsion raises E0
+
+
+def test_sparse_jordan_wigner_matches_dense():
+    from geometric_qml.fermi_hubbard import jordan_wigner_annihilation
+
+    for p in range(5):
+        assert np.allclose(jordan_wigner_annihilation(p, 5, sparse=True).toarray(), jordan_wigner_annihilation(p, 5))
+
+
+def test_trotterized_qgnn_is_native_su2_exact_and_converges_to_equivariance():
+    ring = np.roll(np.eye(6), 1, axis=1)
+    ring = ring + ring.T
+    params = np.random.default_rng(0).uniform(0, 1, 4)
+    rot = [1, 2, 3, 4, 5, 0]
+    errs = []
+    for r in (2, 4, 8):
+        q = QuantumGraphNeuralNetwork(ring, n_layers=2, trotter_steps=r)
+        assert q.su2_equivariance_error(params) < 1e-12                 # every native gate commutes with S
+        errs.append(q.equivariance_error(params, rot))
+    assert errs[0] > errs[1] > errs[2] and errs[1] / errs[2] == pytest.approx(4.0, rel=0.1)   # second order in 1/r
+    assert QuantumGraphNeuralNetwork(ring, n_layers=2).equivariance_error(params, rot) < 1e-12
+
+
+def test_trotterized_qgnn_compiles_to_native_pennylane_gates():
+    qml = pytest.importorskip("pennylane")
+    ring = np.roll(np.eye(4), 1, axis=1)
+    ring = ring + ring.T
+    q = QuantumGraphNeuralNetwork(ring, n_layers=1, trotter_steps=2, second_neighbours=True)
+    params = np.array([0.3, 0.2, 0.1])
+    dev = qml.device("default.qubit", wires=4)
+
+    @qml.qnode(dev)
+    def circuit(p):
+        q.apply_circuit(p)
+        return qml.state()
+
+    assert abs(np.vdot(np.asarray(circuit(params)), q.unitary(params)[:, 0])) == pytest.approx(1.0, abs=1e-10)
+    gates = set(qml.specs(circuit)(params)["resources"].gate_types)
+    assert gates <= {"Hadamard", "IsingXX", "IsingYY", "IsingZZ", "RZ"}

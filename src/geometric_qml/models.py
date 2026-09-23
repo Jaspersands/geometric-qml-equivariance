@@ -38,6 +38,25 @@ def pauli_string_matrix(spec: Dict[int, str], n_qubits: int) -> np.ndarray:
     return reduce(np.kron, ops)
 
 
+def pauli_string_sparse(spec: Dict[int, str], n_qubits: int):
+    """The same Pauli string as a scipy.sparse CSR matrix (one non-zero per column)."""
+    import scipy.sparse as sp
+
+    n = int(n_qubits)
+    b = np.arange(2**n)
+    flip = 0
+    phase = np.ones(2**n, dtype=np.complex128)
+    for q, p in spec.items():
+        bit = (b >> (n - 1 - q)) & 1
+        if p in ("X", "Y"):
+            flip |= 1 << (n - 1 - q)
+        if p == "Z":
+            phase *= np.where(bit == 1, -1.0, 1.0)
+        elif p == "Y":                                   # Y|0⟩ = i|1⟩, Y|1⟩ = −i|0⟩
+            phase *= np.where(bit == 1, -1j, 1j)
+    return sp.csr_matrix((phase, (b ^ flip, b)), shape=(2**n, 2**n))
+
+
 def compute_singlet_dimension(n_qubits: int) -> int:
     """Dimension of the S = 0 sector of N spin-½: the Catalan number C_{N/2} (0 for odd N)."""
     if n_qubits % 2 != 0:
@@ -62,8 +81,10 @@ def lattice_edges(
     * ``ring``      — closed chain
     * ``2d_grid``   — rectangular ``shape=(rows, cols)`` (default ``(2, n/2)``), optional periodic wrap
     * ``triangular``— triangular ladder: chain bonds plus next-nearest ``(i, i+2)`` diagonals
-    * ``kagome``    — corner-sharing triangles: sites grouped in threes, three bonds per triangle
-                      and one link between consecutive triangles (``n`` must be a multiple of 3)
+    * ``kagome``    — the kagome lattice on ``shape=(Lx, Ly)`` unit cells of three sites
+                      (default: the 2×2-cell, 12-site cluster; ``periodic`` gives the torus,
+                      on which every site has coordination 4 and belongs to exactly two
+                      triangles). See ``kagome_edges``.
     """
     n = int(n_qubits)
     if lattice_type not in LATTICES:
@@ -93,17 +114,55 @@ def lattice_edges(
         if periodic and n > 3:
             edges += [(n - 1, 0), (n - 2, 0), (n - 1, 1)]
     elif lattice_type == "kagome":
-        if n % 3 != 0:
-            raise ValueError("kagome lattice needs n_qubits to be a multiple of 3")
-        n_tri = n // 3
-        for t in range(n_tri):
-            a, b, c = 3 * t, 3 * t + 1, 3 * t + 2
-            edges += [(a, b), (b, c), (a, c)]
-            if t + 1 < n_tri:
-                edges.append((c, 3 * (t + 1)))
-        if periodic and n_tri > 1:
-            edges.append((n - 1, 0))
+        if shape is None:
+            if n != 12:
+                raise ValueError("kagome needs shape=(Lx, Ly) with n_qubits = 3·Lx·Ly; the default is the 12-site 2×2 cluster")
+            shape = (2, 2)
+        lx, ly = shape
+        if 3 * lx * ly != n:
+            raise ValueError(f"kagome shape {lx}x{ly} has {3 * lx * ly} sites, not {n}")
+        edges = kagome_edges(lx, ly, periodic=periodic)
     return edges
+
+
+def kagome_edges(lx: int, ly: int, periodic: bool = False) -> List[Tuple[int, int]]:
+    """
+    Kagome bonds on an ``lx × ly`` grid of unit cells (sites A, B, C = 3c, 3c+1, 3c+2
+    for cell c = x + lx·y). With lattice vectors a₁ = (2, 0), a₂ = (1, √3) and
+    sublattice offsets A = 0, B = (1, 0), C = (½, √3/2), the bonds are the
+    up-triangle A–B–C inside every cell and the down triangle
+    {B(x, y), A(x+1, y), C(x+1, y−1)} between cells. ``periodic`` wraps both
+    directions (needs lx, ly ≥ 2 for a simple graph).
+    """
+    def site(x: int, y: int, s: int) -> Optional[int]:
+        if periodic:
+            x, y = x % lx, y % ly
+        elif not (0 <= x < lx and 0 <= y < ly):
+            return None
+        return 3 * (x + lx * y) + s
+
+    bonds = set()
+    for y in range(ly):
+        for x in range(lx):
+            a, b, c = site(x, y, 0), site(x, y, 1), site(x, y, 2)
+            bonds |= {tuple(sorted(e)) for e in ((a, b), (b, c), (a, c))}
+            # down triangle to the right / below
+            for u, v in ((site(x, y, 1), site(x + 1, y, 0)),
+                         (site(x + 1, y, 0), site(x + 1, y - 1, 2)),
+                         (site(x, y, 1), site(x + 1, y - 1, 2))):
+                if u is not None and v is not None and u != v:
+                    bonds.add(tuple(sorted((u, v))))
+    return sorted(bonds)
+
+
+def kagome_positions(lx: int, ly: int) -> np.ndarray:
+    """Planar coordinates of the kagome sites (for plotting)."""
+    out = []
+    for y in range(ly):
+        for x in range(lx):
+            r = np.array([2.0 * x + y, np.sqrt(3.0) * y])
+            out += [r, r + [1.0, 0.0], r + [0.5, np.sqrt(3.0) / 2]]
+    return np.array(out)
 
 
 # --------------------------------------------------------------------------- #
@@ -158,17 +217,27 @@ class HeisenbergSpinChain:
             ops.append(op_i @ op_j)
         return qml.Hamiltonian(coeffs, ops)
 
+    def get_sparse_matrix(self):
+        """The Hamiltonian as a scipy.sparse CSR matrix (built term by term, no dense 2ⁿ objects)."""
+        H = None
+        for c, spec in self.pauli_terms():
+            term = c * pauli_string_sparse(spec, self.n_qubits)
+            H = term if H is None else H + term
+        return H.tocsr()
+
     def get_matrix(self, backend: str = "numpy") -> np.ndarray:
         """Dense 2ⁿ×2ⁿ Hamiltonian. ``backend='numpy'`` needs no PennyLane."""
         if backend == "pennylane":
             return qml.matrix(self.get_pennylane_hamiltonian(), wire_order=list(range(self.n_qubits)))
-        dim = 2**self.n_qubits
-        H = np.zeros((dim, dim), dtype=np.complex128)
-        for c, spec in self.pauli_terms():
-            H += c * pauli_string_matrix(spec, self.n_qubits)
-        return H
+        return self.get_sparse_matrix().toarray()
 
     def exact_ground_state(self) -> Tuple[float, np.ndarray]:
+        """Ground energy and state; Lanczos beyond 10 qubits."""
+        if self.n_qubits > 10:
+            import scipy.sparse.linalg as spla
+
+            w, v = spla.eigsh(self.get_sparse_matrix(), k=1, which="SA", tol=1e-10)
+            return float(w[0]), v[:, 0]
         evals, evecs = np.linalg.eigh(self.get_matrix())
         return float(evals[0]), evecs[:, 0]
 
@@ -179,13 +248,12 @@ class HeisenbergSpinChain:
 # --------------------------------------------------------------------------- #
 # SU(2) machinery
 # --------------------------------------------------------------------------- #
-def get_su2_generators(n_qubits: int) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
-    """Total spin S^α = ½ Σ_i σ_i^α."""
-    dim = 2**n_qubits
-    S = [np.zeros((dim, dim), dtype=np.complex128) for _ in range(3)]
-    for i in range(n_qubits):
-        for a, p in enumerate("XYZ"):
-            S[a] += 0.5 * pauli_string_matrix({i: p}, n_qubits)
+def get_su2_generators(n_qubits: int, sparse: bool = False):
+    """Total spin S^α = ½ Σ_i σ_i^α (dense, or scipy.sparse with ``sparse=True``)."""
+    S = []
+    for p in "XYZ":
+        M = sum(0.5 * pauli_string_sparse({i: p}, n_qubits) for i in range(n_qubits)).tocsr()
+        S.append(M if sparse else M.toarray())
     return S[0], S[1], S[2]
 
 
@@ -196,15 +264,12 @@ def get_casimir_operator(n_qubits: int) -> np.ndarray:
 
 def total_spin_sectors(n_qubits: int) -> Dict[float, int]:
     """
-    Multiplicity of each total-spin irrep: {S: number of copies}. Eigenvalues of
-    S² are S(S+1); each irrep contributes 2S+1 degenerate eigenvalues.
+    Multiplicity of each total-spin irrep: {S: number of copies},
+    m_S = C(N, N/2 − S) − C(N, N/2 − S − 1).
     """
-    evals = np.linalg.eigvalsh(get_casimir_operator(n_qubits))
-    sectors: Dict[float, int] = {}
-    for s2 in np.round(evals, 6):
-        S = round((-1 + math.sqrt(1 + 4 * s2)) / 2, 6)
-        sectors[S] = sectors.get(S, 0) + 1
-    return {float(S): int(round(count / (2 * S + 1))) for S, count in sectors.items()}
+    from .dla import spin_multiplicities
+
+    return spin_multiplicities(n_qubits)
 
 
 def create_singlet_product_state_vector(n_qubits: int) -> np.ndarray:

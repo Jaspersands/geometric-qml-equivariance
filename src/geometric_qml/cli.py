@@ -94,7 +94,11 @@ def cmd_variance(args) -> int:
 
 def cmd_dla(args) -> int:
     ansatz = _make_ansatz(args.ansatz, args.qubits, 1, args.lattice)
-    res = analyze_ansatz(ansatz)
+    if args.ansatz == "equivariant" and args.qubits > 6:
+        from .dla import equivariant_dla_dimension_by_closure
+        res = equivariant_dla_dimension_by_closure(ansatz.couplings, args.qubits)   # SU(2)-reduced representation
+    else:
+        res = analyze_ansatz(ansatz)
     payload = {k: v for k, v in res.items() if k != "basis"}
     lines = [
         f"[*] DLA closure for {args.ansatz} on {args.qubits} qubits ({args.lattice})",

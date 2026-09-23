@@ -38,17 +38,34 @@ def run_benchmark(as_json: bool = False, quick: bool = False) -> int:
 
     say("\n2. DLA closure (chain EQNN with free bond angles) vs closed form Σ_S(m_S²−1)+1, and HEA")
     dla = {}
-    for n in (2, 4, 6):
+    from .dla import equivariant_dla_dimension_by_closure
+    for n in (2, 4, 6, 8):
         t0 = time.time()
-        r = analyze_ansatz(EquivariantQuantumAnsatz(n_qubits=n, n_layers=1, weight_sharing=False))
+        if n <= 6:
+            r = analyze_ansatz(EquivariantQuantumAnsatz(n_qubits=n, n_layers=1, weight_sharing=False))
+            how = "dense"
+        else:
+            r = equivariant_dla_dimension_by_closure([(i, i + 1) for i in range(n - 1)], n)
+            how = "SU(2)-reduced"
         f = equivariant_dla_dimension_formula(n)
-        say(f"   EQNN N = {n}: dim 𝔤 = {r['dla_dimension']:4d} (formula {f:4d}, closed = {r['closed']}, {time.time()-t0:.2f} s) | su(2^N) = {4**n - 1}")
+        say(f"   EQNN N = {n}: dim 𝔤 = {r['dla_dimension']:5d} (formula {f:5d}, closed = {r['closed']}, {how}, {time.time()-t0:.2f} s) | su(2^N) = {4**n - 1}")
         dla[f"eqnn_{n}"] = r["dla_dimension"]
-    for n in (2, 3):
+    for n in (2, 3, 4):
         r = analyze_ansatz(HardwareEfficientAnsatz(n_qubits=n, n_layers=1))
-        say(f"   HEA  N = {n}: dim 𝔤 = {r['dla_dimension']:4d} = su(2^N)")
+        say(f"   HEA  N = {n}: dim 𝔤 = {r['dla_dimension']:5d} = su(2^N)")
         dla[f"hea_{n}"] = r["dla_dimension"]
     out["dla"] = dla
+
+    say("\n2b. Exact diagonalisation checks")
+    from .models import HeisenbergSpinChain
+    from .fermi_hubbard import FermiHubbardChain
+    t0 = time.time()
+    e_k = HeisenbergSpinChain(12, lattice_type="kagome", periodic_boundary=True).exact_ground_state()[0] / 48
+    say(f"   kagome 2×2 torus (12 sites, coordination 4): E₀/N = {e_k:.5f} J  (literature −0.45374)  {time.time()-t0:.1f} s")
+    t0 = time.time()
+    e_fh = FermiHubbardChain(n_sites=8, hopping_t=1.0, on_site_u=4.0).ground_energy(n_particles=8, sz=0.0)
+    say(f"   Fermi–Hubbard L = 8, U/t = 4, half filling (16 qubits, sparse Lanczos): E₀ = {e_fh:.5f} t  {time.time()-t0:.1f} s")
+    out["ed"] = {"kagome_e_per_site": e_k, "fermi_hubbard_l8": e_fh}
 
     try:
         from .barren_plateau import run_barren_plateau_scaling_study
