@@ -5,8 +5,9 @@ For a circuit built from gates exp(−iθ_k G_k), the DLA is
 𝔤 = span_ℝ Lie({iG_k}) — the smallest real Lie algebra containing all gate
 generators (fixed gates such as CNOT are included through their own
 generators, giving the standard upper bound). Its dimension governs
-expressibility and, through Var[∂C] ∝ 1/dim 𝔤, the presence of barren
-plateaus (Larocca et al. 2022, Ragone et al. 2023).
+expressibility and, through the deep-circuit variance formula of Ragone et al.
+(2024), the presence of barren plateaus (Larocca et al. 2022); ``variance_theory``
+evaluates that formula.
 
 Algorithm
 ---------
@@ -25,6 +26,15 @@ representation of the whole commutant. ``su2_reduced_generators`` computes the
 blocks A_S (m_S × m_S, m_S the multiplicity of spin S) from the highest-weight
 subspaces; the closure then runs on Σ_S m_S² numbers per element instead of
 4ⁿ. For N = 8 that is 1 430 instead of 65 536, and the closure takes seconds.
+
+Exact closure
+-------------
+The floating-point rank test needs a tolerance, and round-off in the basis grows
+from round to round. The S_N closure takes about 2N rounds, and from N = 13
+(N = 17 once the generators are scaled to unit norm) it accepted spurious
+directions. Its generators are integer matrices in an unnormalised Dicke basis,
+so ``permutation_dla_dimension_by_closure`` runs that closure over Z/pZ instead,
+with no tolerance (``_lie_closure_mod_p``).
 """
 
 from __future__ import annotations
@@ -117,7 +127,15 @@ class DynamicalLieAlgebraAnalyzer:
                 sizes = [b.shape[0] for b in g.blocks]
                 weights = np.array(g.weights if hasattr(g, "weights") else [1.0] * len(sizes))
                 tr = sum(w * np.trace(b) for w, b in zip(weights, g.blocks)) / sum(w * m for w, m in zip(weights, sizes))
-                self.raw_generators.append(BlockMatrix([1j * (b - tr * np.eye(b.shape[0])) for b in g.blocks]))
+                blocks = [b - tr * np.eye(b.shape[0]) for b in g.blocks]
+                # Scale to unit operator norm. The span is unchanged, but commutators no
+                # longer grow with the generator norm: with 2S_z^2 - N/2 of norm ~N^2/2,
+                # round-off was amplified each round until it passed the rank threshold
+                # (the S_N closure over-counted from N = 13).
+                op = max((np.max(np.abs(np.linalg.eigvalsh(0.5 * (b + b.conj().T)))) for b in blocks), default=0.0)
+                if op > 0:
+                    blocks = [b / op for b in blocks]
+                self.raw_generators.append(BlockMatrix([1j * b for b in blocks]))
             else:
                 g = np.asarray(g, dtype=np.complex128)
                 g = g - (np.trace(g) / g.shape[0]) * np.eye(g.shape[0])
@@ -305,12 +323,214 @@ def equivariant_dla_dimension_formula(n_qubits: int) -> int:
 
         dim 𝔤 = Σ_S (m_S² − 1) + 1,
 
-    where m_S is the multiplicity of the total-spin-S irrep (Schur–Weyl duality:
-    the exchange generators span the commutant of SU(2), and their Lie closure is
-    ⊕_S su(m_S) plus one central element). Verified numerically against the
-    closure for N = 2, 4, 6 (dense) and N = 8 (SU(2)-reduced). Note m_S grows like a Catalan number, so the DLA is
-    exponentially smaller than su(4ⁿ) but not polynomial — full barren-plateau
-    freedom needs additional (e.g. S_N weight-sharing) symmetry.
+    where m_S is the multiplicity of the total-spin-S irrep. By Schur–Weyl duality
+    the exchange generators generate the commutant of SU(2) as an associative
+    algebra; that their Lie closure is ⊕_S su(m_S) plus one central element is a
+    separate result (Marvian, Liu & Hulse, PRL 132, 130201 (2024)). Verified
+    numerically against the closure for N = 2, 4, 6 (dense) and N = 8 (SU(2)-reduced).
+    m_S grows like a Catalan number, so the DLA is exponentially smaller than
+    su(2^N) but not polynomial in N.
     """
     sectors = spin_multiplicities(n_qubits)
     return int(sum(m * m - 1 for m in sectors.values()) + 1)
+
+
+# --------------------------------------------------------------------------- #
+# S_N symmetry (permutation-equivariant circuits)
+# --------------------------------------------------------------------------- #
+def spin_matrices(S: float) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """S_x, S_y, S_z on the spin-S irrep in the basis M = S, S−1, …, −S (Condon–Shortley phases)."""
+    d = int(round(2 * S + 1))
+    M = S - np.arange(d)
+    Sp = np.zeros((d, d))
+    for k in range(1, d):                              # ⟨M+1|S_+|M⟩ = √(S(S+1) − M(M+1))
+        Sp[k - 1, k] = math.sqrt(S * (S + 1) - M[k] * (M[k] + 1))
+    Sx = 0.5 * (Sp + Sp.T)
+    Sy = -0.5j * (Sp - Sp.T)
+    return Sx.astype(np.complex128), Sy, np.diag(M).astype(np.complex128)
+
+
+def permutation_reduced_generators(n_qubits: int) -> List[BlockMatrix]:
+    """
+    The S_N-equivariant generators Σ_k X_k, Σ_k Y_k and Σ_{k<l} Z_kZ_l on the spin
+    spaces V_S of the Schur–Weyl decomposition: 2S_x, 2S_y and 2S_z² − N/2 on every
+    spin-S irrep. Each block appears m_S times in the full space (``weights``).
+    No 2^N object is formed, so this works for any N.
+    """
+    n = int(n_qubits)
+    mult = spin_multiplicities(n)
+    Ss = sorted(mult)
+    out = []
+    for which in ("x", "y", "zz"):
+        blocks, weights = [], []
+        for S in Ss:
+            sx, sy, sz = spin_matrices(S)
+            blk = {"x": 2 * sx, "y": 2 * sy, "zz": 2 * sz @ sz - 0.5 * n * np.eye(sz.shape[0])}[which]
+            blocks.append(blk)
+            weights.append(mult[S])
+        bm = BlockMatrix(blocks)
+        bm.weights = weights
+        out.append(bm)
+    return out
+
+
+def _lie_closure_mod_p(generators: Sequence[Sequence[np.ndarray]], p: int,
+                      max_iterations: int = 1000) -> Tuple[int, List[int], bool]:
+    """
+    Dimension of the Lie algebra generated by integer block-diagonal matrices,
+    computed over the field Z/pZ. There is no tolerance: a candidate is new when its
+    reduction against the current basis is non-zero mod p.
+
+    Over Q the same algorithm gives dim_C Lie(generators). Reduction mod p can only
+    lose rank, so the result is a lower bound that is exact for all but finitely many
+    primes; running two primes guards against an unlucky one. Arithmetic uses float64
+    BLAS on centred residues, exact while |p|^2/4 times the vector length is below 2^53.
+    """
+    sizes = [b.shape[0] for b in generators[0]]
+    length = sum(m * m for m in sizes)
+    if (p / 2) ** 2 * max(length, max(sizes)) >= 2.0**53:
+        raise ValueError("prime too large for exact float64 arithmetic at this size")
+
+    def mod(a):
+        a = np.mod(a, p)
+        return np.where(a > p // 2, a - p, a)
+
+    def vec(blocks):
+        return np.concatenate([b.reshape(-1) for b in blocks])
+
+    def unvec(v):
+        out, k = [], 0
+        for m in sizes:
+            out.append(v[k:k + m * m].reshape(m, m))
+            k += m * m
+        return out
+
+    gens = [[mod(np.asarray(b, dtype=np.float64)) for b in g] for g in generators]
+    basis = np.zeros((0, length))                        # reduced row-echelon form mod p
+    pivots: List[int] = []
+
+    def add(rows):
+        nonlocal basis, pivots
+        if basis.shape[0] and rows.shape[0]:
+            rows = mod(rows - mod(rows[:, pivots]) @ basis)
+        new_rows, new_piv = [], []
+        rows = rows.copy()
+        while rows.shape[0]:
+            nz = np.nonzero(rows)
+            if nz[0].size == 0:
+                break
+            r, c = nz[0][0], nz[1][0]
+            row = mod(rows[r] * pow(int(rows[r, c]) % p, p - 2, p))
+            rows = np.delete(rows, r, axis=0)
+            rows = mod(rows - np.outer(rows[:, c], row))
+            for k in range(len(new_rows)):
+                new_rows[k] = mod(new_rows[k] - new_rows[k][c] * row)
+            new_rows.append(row)
+            new_piv.append(int(c))
+        if not new_rows:
+            return np.zeros((0, length))
+        new = np.array(new_rows)
+        if basis.shape[0]:
+            basis = mod(basis - mod(basis[:, new_piv]) @ new)
+        basis = np.concatenate([basis, new], axis=0)
+        pivots = pivots + new_piv
+        return new
+
+    frontier = add(np.array([vec(g) for g in gens]))
+    dims = [basis.shape[0]]
+    closed = False
+    for _ in range(max_iterations):
+        cands = []
+        for f in frontier:
+            x = unvec(f)
+            for g in gens:
+                cands.append(vec([mod(a @ b - b @ a) for a, b in zip(g, x)]))
+        frontier = add(np.array(cands))
+        if frontier.shape[0] == 0:
+            closed = True
+            break
+        dims.append(basis.shape[0])
+    return basis.shape[0], dims, closed
+
+
+def permutation_integer_generators(n_qubits: int) -> List[List[np.ndarray]]:
+    """
+    The S_N-equivariant generators on the spin blocks as integer matrices.
+
+    In the unnormalised basis |k⟩ = S_−^k |S, S⟩ (k = 0, …, 2S) one has
+    S_−|k⟩ = |k+1⟩, S_+|k⟩ = k(2S − k + 1)|k−1⟩ and S_z|k⟩ = (S − k)|k⟩, so S_+, S_−
+    and 2S_z² − N/2 have integer entries. They span the same complex space as
+    ΣX = S_+ + S_−, ΣY = −i(S_+ − S_−) and Σ ZZ, and the basis change is a diagonal
+    similarity, so the complex Lie algebra they generate has the same dimension
+    as the real DLA of the circuit.
+    """
+    n = int(n_qubits)
+    Ss = sorted(spin_multiplicities(n))
+    out = {"+": [], "-": [], "zz": []}
+    for S in Ss:
+        d = int(round(2 * S + 1))
+        k = np.arange(d)
+        sp_ = np.zeros((d, d))
+        sm = np.zeros((d, d))
+        for j in range(1, d):
+            sp_[j - 1, j] = j * (d - j)                  # k(2S − k + 1) with 2S + 1 = d
+            sm[j, j - 1] = 1
+        zz = np.diag(2 * (S - k) ** 2 - 0.5 * n)
+        assert np.allclose(zz, np.round(zz))
+        out["+"].append(sp_)
+        out["-"].append(sm)
+        out["zz"].append(np.round(zz))
+    return [out["+"], out["-"], out["zz"]]
+
+
+def permutation_dla_dimension_by_closure(n_qubits: int, method: str = "exact",
+                                         primes: Sequence[int] = (1048573, 1048571), **kwargs) -> Dict[str, Any]:
+    """
+    DLA of the S_N-equivariant generators ΣX, ΣY, Σ ZZ, computed on the spin blocks.
+
+    ``method="exact"`` (default) runs the closure on integer generators over Z/pZ for
+    each prime in ``primes`` (see ``_lie_closure_mod_p``); there is no tolerance, and
+    the primes must agree. ``method="float"`` uses ``DynamicalLieAlgebraAnalyzer``.
+    That one scales each generator to unit operator norm (1/N for ΣX and ΣY,
+    2/(N(N−1)) for Σ ZZ, as in Schatzki et al.); without the scaling it over-counted
+    from N = 13, and with it the count is right up to N = 16 and wrong from N = 17.
+
+    Either way the result cannot exceed dim ⊕_S End(V_S) = C(N+3, 3); a larger count
+    raises ``ValueError``.
+    """
+    n = int(n_qubits)
+    bound = math.comb(n + 3, 3)
+    if method == "float":
+        res = DynamicalLieAlgebraAnalyzer(permutation_reduced_generators(n), hilbert_dim=2**n,
+                                          **kwargs).compute_dla_dimension()
+        res["method"] = "float"
+    elif method == "exact":
+        gens = permutation_integer_generators(n)
+        runs = [_lie_closure_mod_p(gens, int(q)) for q in primes]
+        if len({r[0] for r in runs}) != 1:
+            raise ValueError(f"closure mod p gave different dimensions for the primes {list(primes)}: "
+                             f"{[r[0] for r in runs]}")
+        dim, rounds, closed = runs[0]
+        res = {"dla_dimension": dim, "full_su_dimension": 4**n - 1, "is_sub_exponential": dim < 0.8 * (4**n - 1),
+               "iteration_dimensions": rounds, "n_qubits": n, "closed": closed, "method": "exact",
+               "primes": [int(q) for q in primes]}
+    else:
+        raise ValueError("method must be 'exact' or 'float'")
+    if res["dla_dimension"] > bound:
+        raise ValueError(f"closure found {res['dla_dimension']} > C(N+3, 3) = {bound} directions at N = {n}; "
+                         "the rank test failed")
+    return res
+
+
+def permutation_dla_dimension_formula(n_qubits: int) -> int:
+    """
+    dim 𝔤 = Σ_S ((2S+1)² − 1) + 1 = Te_{N+1} − ⌊N/2⌋, with Te_{N+1} = C(N+3, 3).
+
+    The S_N commutant is ⊕_S End(V_S), of dimension Σ_S (2S+1)² = C(N+3, 3) (the
+    tetrahedral number of Schatzki et al., Lemma 2). One- and two-body generators
+    give su(2S+1) on every spin block but only one central direction, the traceless
+    Casimir (Kazi, Larocca & Cerezo 2024): ⌊N/2⌋ + 1 block identities are lost and
+    one is gained back. The growth is cubic, about N³/6.
+    """
+    n = int(n_qubits)
+    return math.comb(n + 3, 3) - n // 2

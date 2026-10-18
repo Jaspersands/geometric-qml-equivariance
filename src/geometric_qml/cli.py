@@ -1,12 +1,13 @@
 """
 Command-line interface: ``geometric-qml <command>``.
 
-variance   gradient-variance sampling for an ansatz (barren-plateau probe)
-dla        Dynamical Lie Algebra closure for an ansatz on N qubits
-sectors    total-spin irrep multiplicities and the singlet (Catalan) dimension
-transpile  equivariant circuit on a Sycamore snake grid
-vqe        equivariant VQE ground-state search
-benchmark  the full benchmark suite
+variance         gradient-variance sampling for an ansatz (barren-plateau probe)
+variance-theory  loss variance of a deep circuit: Lie-algebraic prediction against sampling
+dla              Dynamical Lie Algebra closure for an ansatz on N qubits
+sectors          total-spin irrep multiplicities and the singlet (Catalan) dimension
+transpile        equivariant circuit on a Sycamore snake grid
+vqe              equivariant VQE ground-state search
+benchmark        the full benchmark suite
 """
 
 from __future__ import annotations
@@ -35,8 +36,17 @@ def build_parser() -> argparse.ArgumentParser:
     v.add_argument("--seed", type=int, default=0)
     v.add_argument("--json", action="store_true")
 
+    vt = sub.add_parser("variance-theory", help="Deep-circuit loss variance: Lie-algebraic prediction against sampling")
+    vt.add_argument("--ansatz", choices=["su2", "hea", "sn"], default="su2",
+                    help="su2: exchange gates; hea: hardware-efficient; sn: permutation-equivariant")
+    vt.add_argument("--qubits", type=int, default=6)
+    vt.add_argument("--depth", type=int, default=None, help="layers (default: 4N, or 32 for sn)")
+    vt.add_argument("--samples", type=int, default=2000)
+    vt.add_argument("--seed", type=int, default=0)
+    vt.add_argument("--json", action="store_true")
+
     d = sub.add_parser("dla", help="Dynamical Lie Algebra closure")
-    d.add_argument("--ansatz", choices=["equivariant", "hea", "qaoa"], default="equivariant")
+    d.add_argument("--ansatz", choices=["equivariant", "hea", "qaoa", "sn"], default="equivariant")
     d.add_argument("--qubits", type=int, default=4)
     d.add_argument("--lattice", choices=LATTICES, default="1d_chain")
     d.add_argument("--json", action="store_true")
@@ -92,7 +102,47 @@ def cmd_variance(args) -> int:
     return 0
 
 
+def cmd_variance_theory(args) -> int:
+    from .variance_theory import compare_prediction, deep_depth, default_setup, predict_loss
+
+    n = args.qubits
+    if n % 2 or n < 2:
+        raise SystemExit("variance-theory uses the singlet product (hea, su2) or Néel (sn) input; "
+                         "give an even number of qubits, at least 2")
+    L = args.depth if args.depth is not None else deep_depth(args.ansatz, n)
+    psi, O, label = default_setup(args.ansatz, n)
+    r = compare_prediction(args.ansatz, n, L, args.samples, args.seed, psi, O)
+    pred = predict_loss(args.ansatz, n, psi, O)
+    ideals = pred["purities_obs"].get("dimensions", {})
+    r["ideal_dimensions"] = {str(k): v for k, v in ideals.items()} if isinstance(ideals, dict) else {}
+    r["setup"] = label
+    zm = (r["measured_mean"] - r["predicted_mean"]) / r["measured_mean_se"] if not r["zero_variance"] else 0.0
+    lines = [
+        f"[*] {args.ansatz} circuit on {n} qubits, L = {L}, {args.samples} random parameter vectors",
+        f"[*] input and observable: {label}",
+        f"[+] dim 𝔤 = {r['dla_dimension']}" + (f"; simple ideals (keyed by S): {r['ideal_dimensions']}" if r["ideal_dimensions"] else ""),
+        (f"[+] Var[ℓ]: predicted 0 and measured {r['measured']:.1e}: the loss is constant (round-off only), z set to 0"
+         if r["zero_variance"] else
+         f"[+] Var[ℓ]: predicted {r['predicted']:.5e}   measured {r['measured']:.5e} ± {r['measured_se']:.1e}   z = {r['z']:+.2f}"),
+        f"[+] E[ℓ]:   predicted {r['predicted_mean']:+.5f}   measured {r['measured_mean']:+.5f} ± {r['measured_mean_se']:.1e}   z = {zm:+.2f}",
+    ]
+    _emit(r, args.json, lines)
+    return 0
+
+
 def cmd_dla(args) -> int:
+    if args.ansatz == "sn":
+        from .dla import permutation_dla_dimension_by_closure, permutation_dla_dimension_formula
+        res = permutation_dla_dimension_by_closure(args.qubits)
+        payload = {k: v for k, v in res.items() if k != "basis"}
+        payload["closed_form"] = permutation_dla_dimension_formula(args.qubits)
+        _emit(payload, args.json, [
+            f"[*] DLA closure for the S_N-equivariant generators ΣX, ΣY, ΣZZ on {args.qubits} qubits "
+            f"(spin blocks, exact arithmetic mod {' and '.join(str(q) for q in res['primes'])})",
+            f"[+] dim 𝔤 = {res['dla_dimension']}  (su(2^N) has {res['full_su_dimension']}), closed = {res['closed']}",
+            f"[+] closed form C(N+3, 3) − ⌊N/2⌋ = {payload['closed_form']}",
+        ])
+        return 0
     ansatz = _make_ansatz(args.ansatz, args.qubits, 1, args.lattice)
     if args.ansatz == "equivariant" and args.qubits > 6:
         from .dla import equivariant_dla_dimension_by_closure
@@ -154,7 +204,8 @@ def main(argv: Optional[List[str]] = None) -> int:
     if args.command == "benchmark":
         from .benchmark import run_benchmark
         return run_benchmark(as_json=args.json, quick=args.quick)
-    return {"variance": cmd_variance, "dla": cmd_dla, "sectors": cmd_sectors, "transpile": cmd_transpile, "vqe": cmd_vqe}[args.command](args)
+    return {"variance": cmd_variance, "variance-theory": cmd_variance_theory, "dla": cmd_dla, "sectors": cmd_sectors,
+            "transpile": cmd_transpile, "vqe": cmd_vqe}[args.command](args)
 
 
 if __name__ == "__main__":

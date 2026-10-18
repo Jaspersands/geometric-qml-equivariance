@@ -5,6 +5,8 @@ Parameterised circuit families:
    exp(−iθ (X_iX_j + Y_iY_j + Z_iZ_j)) that commute with the total spin.
 2. ``HardwareEfficientAnsatz`` — RY/RZ rotations with CNOT ladders (no symmetry).
 3. ``QAOABaselineAnsatz`` — alternating ZZ-cost and X-mixer layers.
+4. ``PermutationEquivariantAnsatz`` — layers of exp(−iθΣX), exp(−iθΣY) and
+   exp(−iθΣ_{k<l}Z_kZ_l), which commute with every qubit permutation.
 
 Each exposes ``apply_circuit(params)`` (PennyLane), ``generators()`` (the
 Hermitian generators of every gate, used by the DLA analyzer) and
@@ -189,3 +191,86 @@ class QAOABaselineAnsatz:
         for l in range(self.n_layers):
             U = scipy.linalg.expm(-1j * params[2 * l + 1] * mixer) @ scipy.linalg.expm(-1j * params[2 * l] * cost) @ U
         return U
+
+
+class PermutationEquivariantAnsatz:
+    """
+    S_N-equivariant circuit of Schatzki, Larocca, Nguyen, Sauvage & Cerezo
+    (npj Quantum Inf. 10, 12 (2024), Eq. 9). Every layer applies exp(−iθ₁ Σ_k X_k),
+    then exp(−iθ₂ Σ_k Y_k), then exp(−iθ₃ Σ_{k<l} Z_kZ_l); as an operator product,
+
+        exp(−iθ₃ Σ_{k<l} Z_kZ_l) · exp(−iθ₂ Σ_k Y_k) · exp(−iθ₁ Σ_k X_k).
+
+    The paper puts prefactors 1/N and 2/(N(N−1)) on the generators; they rescale the
+    angles and leave the Lie algebra unchanged. Without them every gate has period 2π
+    in its angle, which is what uniform sampling on [0, 2π) needs.
+
+    Its dynamical Lie algebra is ⊕_S su(2S+1) on the spin spaces of the Schur–Weyl
+    decomposition plus one central element, dimension C(N+3, 3) − ⌊N/2⌋.
+
+    The generators are collective spin operators, ΣX = 2S_x, ΣY = 2S_y and
+    Σ ZZ = 2S_z² − N/2, so they commute with every SU(2)-invariant operator H, and
+    U†HU = H for every circuit built from them. The circuit therefore never changes
+    the expectation value of a Heisenberg Hamiltonian, on any graph. An operator
+    invariant under both S_N and SU(2) acts as a scalar on each spin-S block, so it
+    is a function of the Casimir, and a circuit with both symmetries only adds a
+    phase to each block.
+
+    ``initial_state``: ``'neel'`` (|0101…⟩, default), ``'zero'`` or ``'singlet'``
+    (singlet pairs; the circuit then only adds a phase).
+    """
+
+    def __init__(self, n_qubits: int, n_layers: int = 3, initial_state: str = "neel"):
+        if initial_state not in ("neel", "zero", "singlet"):
+            raise ValueError("initial_state must be 'neel', 'zero' or 'singlet'")
+        self.n_qubits = int(n_qubits)
+        self.n_layers = int(n_layers)
+        self.initial_state = initial_state
+
+    def num_params(self) -> int:
+        return 3 * self.n_layers
+
+    def apply_circuit(self, params) -> None:
+        if not HAS_PENNYLANE:
+            raise RuntimeError("PennyLane required.")
+        n = self.n_qubits
+        if self.initial_state == "neel":
+            for k in range(1, n, 2):
+                qml.PauliX(wires=k)
+        elif self.initial_state == "singlet":
+            create_singlet_product_state(n)
+        for l in range(self.n_layers):
+            tx, ty, tz = params[3 * l], params[3 * l + 1], params[3 * l + 2]
+            for k in range(n):
+                qml.RX(2 * tx, wires=k)
+            for k in range(n):
+                qml.RY(2 * ty, wires=k)
+            for k in range(n):
+                for m in range(k + 1, n):
+                    qml.IsingZZ(2 * tz, wires=[k, m])
+
+    def generators(self) -> List[np.ndarray]:
+        n = self.n_qubits
+        sx = sum(pauli_string_matrix({k: "X"}, n) for k in range(n))
+        sy = sum(pauli_string_matrix({k: "Y"}, n) for k in range(n))
+        szz = sum(pauli_string_matrix({k: "Z", m: "Z"}, n) for k in range(n) for m in range(k + 1, n))
+        return [sx, sy, szz]
+
+    def unitary(self, params) -> np.ndarray:
+        gens = self.generators()
+        params = np.asarray(params, dtype=float)
+        U = np.eye(2**self.n_qubits, dtype=np.complex128)
+        for l in range(self.n_layers):
+            for g, theta in zip(gens, params[3 * l:3 * l + 3]):
+                U = scipy.linalg.expm(-1j * float(theta) * g) @ U
+        return U
+
+    def initial_state_vector(self) -> np.ndarray:
+        from .models import create_singlet_product_state_vector
+
+        n = self.n_qubits
+        if self.initial_state == "singlet":
+            return create_singlet_product_state_vector(n)
+        v = np.zeros(2**n, dtype=np.complex128)
+        v[sum(1 << (n - 1 - k) for k in range(1, n, 2)) if self.initial_state == "neel" else 0] = 1.0
+        return v

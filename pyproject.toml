@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "geometric-qml-equivariance"
-version = "0.4.0"
-description = "Geometric QML: SU(2)-equivariant quantum circuits, Dynamical Lie Algebra closure, barren-plateau scaling, Fermi-Hubbard symmetries and Google Sycamore transpilation"
+version = "0.5.0"
+description = "Symmetric variational circuits: dynamical Lie algebras, deep-circuit loss variance predicted and measured, SU(2)- and S_N-equivariant ansaetze, Fermi-Hubbard symmetries and Sycamore transpilation"
 readme = "README.md"
 requires-python = ">=3.10"
 license = { text = "Apache-2.0" }
@@ -35,3 +35,6 @@ where = ["src"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["src"]
+markers = [
+    "slow: longer numerical checks, a few seconds each (deselect with -m 'not slow')",
+]
