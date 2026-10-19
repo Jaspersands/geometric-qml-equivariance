@@ -20,6 +20,12 @@ kind        unitary                      generator G (U = exp(−iθG))
 Qubit 0 is the most significant bit, as in ``models.pauli_string_matrix``.
 States are arrays of shape ``(n_samples, 2**n)``; ``params`` has shape
 ``(n_samples, n_params)``. Nothing here needs PennyLane.
+
+``exch``, ``rz`` and ``sumzz`` conserve the number of qubits in |1⟩ (total
+S_z), so a circuit made of them can also run inside one S_z sector
+(``SzSector``, ``run_circuit_sector``, ``sample_losses(..., sector=True)``):
+C(16, 8) = 12 870 amplitudes at N = 16 for the singlet product input, instead
+of 65 536.
 """
 
 from __future__ import annotations
@@ -28,6 +34,7 @@ from functools import lru_cache
 from typing import Callable, List, Optional, Sequence, Tuple
 
 import numpy as np
+import scipy.sparse as sp
 
 Gate = Tuple[str, Tuple[int, ...]]
 
@@ -214,15 +221,128 @@ def energy_and_gradient(gates: Sequence[Gate], n: int, params: np.ndarray, psi0:
 
 
 def sample_losses(gates: Sequence[Gate], n: int, psi0: np.ndarray, op, n_samples: int, seed: Optional[int] = None,
-                  batch: int = 512) -> np.ndarray:
-    """ℓ(θ) = ⟨ψ(θ)|O|ψ(θ)⟩ at ``n_samples`` parameter vectors drawn uniformly from [0, 2π)."""
-    rng = np.random.default_rng(seed)
-    P = num_params(gates)
-    out = []
-    left = int(n_samples)
-    while left > 0:
-        b = min(batch, left)
-        theta = rng.uniform(0.0, 2.0 * np.pi, size=(b, P))
-        out.append(expectation(run_circuit(gates, n, theta, psi0), op))
-        left -= b
-    return np.concatenate(out)
+                  batch: int = 512, sector: bool = False) -> np.ndarray:
+    """
+    ℓ(θ) = ⟨ψ(θ)|O|ψ(θ)⟩ at ``n_samples`` parameter vectors drawn uniformly from [0, 2π).
+
+    With ``sector=True`` the circuit runs inside the S_z sector that holds ψ₀; every
+    gate must conserve S_z. The angles depend on the seed only, not on ``batch`` or ``sector``.
+    """
+    theta = np.random.default_rng(seed).uniform(0.0, 2.0 * np.pi, size=(int(n_samples), num_params(gates)))
+    return losses_at(gates, n, psi0, op, theta, batch, sector)
+
+
+def losses_at(gates: Sequence[Gate], n: int, psi0: np.ndarray, op, theta: np.ndarray, batch: int = 512,
+              sector: bool = False) -> np.ndarray:
+    """ℓ(θ) for each row of ``theta``, ``batch`` rows at a time (see ``sample_losses``)."""
+    theta = np.atleast_2d(np.asarray(theta, dtype=float))
+    if sector:
+        sec = SzSector.containing(psi0, n)
+        phi0, block = sec.restrict(psi0), sec.block(op)
+        run = lambda th: expectation(run_circuit_sector(gates, sec, th, phi0), block)  # noqa: E731
+    else:
+        run = lambda th: expectation(run_circuit(gates, n, th, psi0), op)  # noqa: E731
+    return np.concatenate([run(theta[k:k + batch]) for k in range(0, theta.shape[0], batch)])
+
+
+# --------------------------------------------------------------------------- #
+# one S_z sector
+# --------------------------------------------------------------------------- #
+_SZ_CONSERVING = {"exch", "rz", "sumzz"}
+
+
+class SzSector:
+    """
+    The computational basis states with ``n_ones`` qubits in |1⟩, in increasing order.
+
+    An exchange gate maps this set to itself (SWAP permutes it), and RZ and ΣZZ are
+    diagonal, so a state in the sector stays there. Arrays restricted to the sector
+    have shape ``(n_samples, dim)`` with ``dim`` = C(n, n_ones).
+    """
+
+    def __init__(self, n_qubits: int, n_ones: int):
+        self.n = int(n_qubits)
+        self.n_ones = int(n_ones)
+        b = np.arange(2**self.n, dtype=np.int64)
+        pop = np.zeros_like(b)
+        for q in range(self.n):
+            pop += (b >> q) & 1
+        self.states = b[pop == self.n_ones]
+        self.dim = int(self.states.size)
+        self._swaps: dict = {}
+
+    @classmethod
+    def containing(cls, psi: np.ndarray, n_qubits: int, tol: float = 1e-12) -> "SzSector":
+        """The sector holding ``psi``; raises if ``psi`` has weight in more than one."""
+        psi = np.asarray(psi)
+        support = np.flatnonzero(np.abs(psi) > tol)
+        if support.size == 0:
+            raise ValueError("the state is zero")
+        ones = {bin(int(k)).count("1") for k in support}
+        if len(ones) > 1:
+            raise ValueError(f"the state has weight in several S_z sectors ({sorted(ones)} qubits in |1⟩)")
+        sec = cls(n_qubits, ones.pop())
+        outside = np.linalg.norm(psi) ** 2 - np.linalg.norm(psi[sec.states]) ** 2
+        if outside > tol:
+            raise ValueError("the state has weight outside its S_z sector")
+        return sec
+
+    def bits(self, q: int) -> np.ndarray:
+        """Value of qubit q in each basis state of the sector."""
+        return (self.states >> (self.n - 1 - q)) & 1
+
+    def swap_index(self, i: int, j: int) -> np.ndarray:
+        """Positions k' with states[k'] = states[k] with qubits i and j exchanged."""
+        key = (min(i, j), max(i, j))
+        if key not in self._swaps:
+            bi, bj = self.bits(i), self.bits(j)
+            flip = (bi ^ bj) * ((1 << (self.n - 1 - i)) | (1 << (self.n - 1 - j)))
+            self._swaps[key] = np.searchsorted(self.states, self.states ^ flip)
+        return self._swaps[key]
+
+    def restrict(self, psi: np.ndarray) -> np.ndarray:
+        return np.asarray(psi)[..., self.states]
+
+    def embed(self, phi: np.ndarray) -> np.ndarray:
+        """Full 2^n-dimensional state(s) from sector amplitudes."""
+        phi = np.asarray(phi)
+        out = np.zeros(phi.shape[:-1] + (2**self.n,), dtype=np.complex128)
+        out[..., self.states] = phi
+        return out
+
+    def block(self, op):
+        """O restricted to the sector; ⟨ψ|O|ψ⟩ for ψ in the sector needs nothing else."""
+        if sp.issparse(op):
+            return op.tocsr()[self.states][:, self.states]
+        return np.asarray(op)[np.ix_(self.states, self.states)]
+
+
+def apply_gate_sector(phi: np.ndarray, sector: SzSector, gate: Gate, theta: np.ndarray) -> np.ndarray:
+    """Apply one S_z-conserving gate to sector amplitudes ``phi`` (shape (S, dim))."""
+    kind, qs = gate
+    if kind == "exch":
+        # exp(−iθ(2P − 1)) = e^{iθ}(cos 2θ − i sin 2θ P), and P permutes the sector
+        ph = np.exp(1j * theta)
+        a = (ph * np.cos(2 * theta))[:, None]
+        b = (-1j * ph * np.sin(2 * theta))[:, None]
+        return a * phi + b * phi[:, sector.swap_index(qs[0], qs[1])]
+    if kind == "rz":
+        z = 1.0 - 2.0 * sector.bits(qs[0])
+        return phi * np.exp(-0.5j * theta[:, None] * z[None, :])
+    if kind == "sumzz":
+        return phi * np.exp(-1j * theta[:, None] * _sumzz_diag(sector.n)[sector.states][None, :])
+    raise ValueError(f"gate {kind!r} does not conserve S_z")
+
+
+def run_circuit_sector(gates: Sequence[Gate], sector: SzSector, params: np.ndarray, phi0: np.ndarray) -> np.ndarray:
+    """``run_circuit`` inside one S_z sector: ``phi0`` and the result hold the sector amplitudes."""
+    bad = sorted({kind for kind, _ in gates if kind not in _SZ_CONSERVING})
+    if bad:
+        raise ValueError(f"gates {bad} do not conserve S_z")
+    params = np.atleast_2d(np.asarray(params, dtype=float))
+    if params.shape[1] != len(gates):
+        raise ValueError(f"circuit has {len(gates)} parameters, got {params.shape[1]}")
+    phi = np.array(np.broadcast_to(phi0, (params.shape[0], sector.dim)), dtype=np.complex128)
+    for k, g in enumerate(gates):
+        phi = apply_gate_sector(phi, sector, g, params[:, k])
+    return phi

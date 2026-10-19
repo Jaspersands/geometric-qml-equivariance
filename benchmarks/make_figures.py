@@ -1,16 +1,20 @@
 """
-python benchmarks/make_figures.py [--quick] [--plot-only] [--lines] [--recheck]
+python benchmarks/make_figures.py [--quick] [--plot-only] [--lines] [--recheck] [--extend]
 
 Runs the comparison of measured loss variance with the Lie-algebraic
 prediction, the depth scans, g-sim runs of the S_N circuit beyond statevector
 size, and the expressivity comparison; writes figures/*.png and
 figures/results.json. A full run keeps any other keys already in results.json
-(such as ``su2_recheck``).
+(such as ``su2_recheck`` and ``extended``).
 
 ``--plot-only`` redraws from an existing results.json. ``--lines`` recomputes
 only the prediction lines (N = 4 to 24, a few seconds) into it. ``--recheck``
 adds an 8000-sample run of the exchange circuit at L = 4N and 16N (N = 6, 8, 10).
-The full run takes about ten minutes on a laptop, the recheck about four.
+``--extend`` adds the exchange and hardware-efficient circuits at N = 14 and 16
+with the same protocol, the exchange circuit in its S_z = 0 sector, plus an
+exchange run at L = 16N. The full run takes about ten minutes on a laptop, the
+recheck about four, the extension under an hour on five processes (51 minutes on a
+busy laptop).
 """
 
 from __future__ import annotations
@@ -19,6 +23,7 @@ import json
 import math
 import sys
 import time
+from functools import lru_cache
 from pathlib import Path
 
 import numpy as np
@@ -118,6 +123,78 @@ def prediction_lines(n_max: int = 24) -> dict:
     return lines
 
 
+@lru_cache(maxsize=None)
+def _setup(kind: str, n: int):
+    from geometric_qml.variance_theory import default_setup
+
+    return default_setup(kind, n)
+
+
+def _losses_chunk(job):
+    """One worker's share of a sampled variance: ℓ at the given rows of angles."""
+    from geometric_qml.statevector import losses_at
+    from geometric_qml.variance_theory import circuit_for
+
+    kind, n, depth, theta = job
+    psi, O, _ = _setup(kind, n)
+    sector = kind == "su2"
+    return losses_at(circuit_for(kind, n, depth), n, psi, O, theta, batch=64 if n >= 16 and not sector else 128,
+                     sector=sector)
+
+
+def extend(qubits=(14, 16), workers: int = 5, chunk: int = 125) -> dict:
+    """
+    Exchange and hardware-efficient circuits beyond N = 12, by the protocol of the study:
+    2000 samples, L = 4N, seed 1000 N + 2 (exchange) or + 1 (hardware-efficient), angles as
+    ``sample_losses`` draws them. The exchange circuit runs in the S_z = 0 sector, the
+    hardware-efficient one on the full statevector. A second exchange run at L = 16N checks
+    that 4N layers are enough at these sizes. Samples are split over ``workers`` processes.
+    """
+    from concurrent.futures import ProcessPoolExecutor
+
+    from geometric_qml.statevector import num_params
+    from geometric_qml.variance_theory import _op_norm2, circuit_for, deep_depth, predict_loss
+
+    jobs = []                                              # (kind, n, depth, seed, role), most expensive first
+    for n in sorted(qubits, reverse=True):
+        jobs.append(("hea", n, deep_depth("hea", n), 1000 * n + 1, "protocol"))
+        jobs.append(("su2", n, 16 * n, 1234 + 16 * n, "depth_check"))
+        jobs.append(("su2", n, deep_depth("su2", n), 1000 * n + 2, "protocol"))
+    rows, checks = [], []
+    t0 = time.time()
+    with ProcessPoolExecutor(workers) as pool:
+        futures = []
+        for kind, n, L, seed, role in jobs:
+            P = num_params(circuit_for(kind, n, L))
+            theta = np.random.default_rng(seed).uniform(0.0, 2.0 * np.pi, size=(2000, P))   # = sample_losses(seed=seed)
+            futures.append([pool.submit(_losses_chunk, (kind, n, L, theta[k:k + chunk])) for k in range(0, 2000, chunk)])
+        for (kind, n, L, seed, role), fs in zip(jobs, futures):
+            x = np.concatenate([f.result() for f in fs])
+            psi, O, label = _setup(kind, n)
+            if kind == "su2":
+                p = singlet_input_prediction(n)
+                pred, pred_mean = p["variance"], p["mean"]
+            else:
+                p = predict_loss("hea", n, psi, O)
+                pred, pred_mean = p["variance"], p["mean"]
+            v, se = variance_with_error(x)
+            row = {"kind": kind, "n_qubits": n, "depth": L, "predicted": pred, "predicted_mean": pred_mean, "measured": v,
+                   "measured_se": se, "measured_mean": float(x.mean()), "measured_mean_se": float(x.std(ddof=1) / math.sqrt(x.size)),
+                   "z": (v - pred) / se, "obs_scale": _op_norm2(O) / 2**n, "n_samples": int(x.size), "seed": seed,
+                   "setup": label, "method": "S_z = 0 sector" if kind == "su2" else "full statevector"}
+            (rows if role == "protocol" else checks).append(row)
+            print(f"  {kind:4s} N={n:2d} L={L:3d}  predicted {pred:.4e}  measured {v:.4e} ± {se:.1e}  z = {row['z']:+.2f}  "
+                  f"({time.time() - t0:.0f} s)", flush=True)
+    rows.sort(key=lambda r: (r["kind"], r["n_qubits"]))
+    checks.sort(key=lambda r: r["n_qubits"])
+    return {"rows": rows, "agreement": agreement(rows), "depth_check": checks, "workers": workers}
+
+
+def _agreement_all(res: dict) -> dict:
+    """χ² over every protocol comparison: the study, the g-sim points and the extended points."""
+    return agreement(res["study"]["rows"] + res.get("gsim", []) + res.get("extended", {}).get("rows", []))
+
+
 def recheck() -> dict:
     """High-statistics check that L = 4N is deep enough for the exchange circuit."""
     from geometric_qml.variance_theory import default_setup, measure_loss_variance, predict_loss
@@ -161,7 +238,7 @@ def _norm_rows(rows, kind):
 
 
 def variance_axes(ax, res, labels=True, narrow=False):
-    rows = res["study"]["rows"]
+    rows = res["study"]["rows"] + res.get("extended", {}).get("rows", [])      # statevector points, N = 4 to 16
     lines = res["prediction_lines"]
     for kind in ("hea", "su2", "sn"):
         c = COLORS[kind]
@@ -346,18 +423,23 @@ def main(argv):
     matplotlib.use("Agg")
     path = FIG / "results.json"
     old = json.loads(path.read_text()) if path.exists() else {}
-    if "--plot-only" in argv or "--recheck" in argv or "--lines" in argv:
+    partial = ("--plot-only", "--recheck", "--lines", "--extend")
+    if any(a in argv for a in partial):
         res = old
         if "--lines" in argv:
             res["prediction_lines"] = _jsonable(prediction_lines())
         if "--recheck" in argv:
             res["su2_recheck"] = _jsonable(recheck())
-        if "--lines" in argv or "--recheck" in argv:
+        if "--extend" in argv:
+            res["extended"] = _jsonable(extend())
+            res["agreement_all"] = _agreement_all(res)
+        if any(a in argv for a in partial[1:]):
             path.write_text(json.dumps(res, indent=1))
     else:
         res = _jsonable(compute(quick="--quick" in argv))
-        for k, v in old.items():                          # keep results this run does not produce (su2_recheck)
+        for k, v in old.items():                          # keep results this run does not produce (su2_recheck, extended)
             res.setdefault(k, v)
+        res["agreement_all"] = _agreement_all(res)
         FIG.mkdir(exist_ok=True)
         path.write_text(json.dumps(res, indent=1))
     plot(res)

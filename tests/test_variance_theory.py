@@ -4,6 +4,7 @@ the batched statevector simulator, g-sim and the expressivity comparison.
 """
 
 import json
+import math
 
 import numpy as np
 import pytest
@@ -16,11 +17,13 @@ from geometric_qml.dla import (DynamicalLieAlgebraAnalyzer, _lie_closure_mod_p, 
 from geometric_qml.models import (HeisenbergSpinChain, create_singlet_product_state_vector, get_casimir_operator,
                                   pauli_string_sparse)
 from geometric_qml.qgnn import permutation_matrix
-from geometric_qml.statevector import (energy_and_gradient, hardware_efficient_circuit, permutation_equivariant_circuit,
-                                       run_circuit, su2_equivariant_circuit, expectation)
-from geometric_qml.variance_theory import (SchurBasis, compare_prediction, default_setup, g_purities, neel_state_vector,
-                                           predict_loss, reductive_decomposition, schur_purities,
-                                           singlet_input_prediction, variance_with_error)
+from geometric_qml.statevector import (SzSector, energy_and_gradient, hardware_efficient_circuit, num_params,
+                                       permutation_equivariant_circuit, run_circuit, run_circuit_sector, sample_losses,
+                                       su2_equivariant_circuit, expectation)
+from geometric_qml.variance_theory import (SchurBasis, compare_prediction, default_setup, g_purities,
+                                           measure_loss_variance, neel_state_vector, predict_loss,
+                                           reductive_decomposition, schur_purities, singlet_input_prediction,
+                                           variance_with_error)
 from geometric_qml.cli import main as cli_main
 
 
@@ -334,6 +337,51 @@ def test_batched_statevector_matches_dense_unitaries_and_gradients():
         fd = [(energy_and_gradient(gates, n, x + 1e-6 * np.eye(P)[k], psi0, H)[0]
                - energy_and_gradient(gates, n, x - 1e-6 * np.eye(P)[k], psi0, H)[0]) / 2e-6 for k in range(P)]
         assert np.allclose(g, fd, atol=1e-6)
+
+
+@pytest.mark.parametrize("n", [4, 6, 12])
+def test_sz_sector_simulator_matches_full_statevector(n):
+    """The sector path (used for the exchange circuit at N = 14, 16) against the full statevector."""
+    rng = np.random.default_rng(40 + n)
+    psi, H, _ = default_setup("su2", n)
+    sec = SzSector.containing(psi, n)
+    assert sec.n_ones == n // 2 and sec.dim == math.comb(n, n // 2)
+    gates = su2_equivariant_circuit(n, 4 * n)
+    th = rng.uniform(0, 2 * np.pi, (3, num_params(gates)))
+    full = run_circuit(gates, n, th, psi)
+    assert np.abs(full - sec.embed(run_circuit_sector(gates, sec, th, sec.restrict(psi)))).max() < 1e-12
+    # same seed, same angles: the sampled losses agree sample by sample
+    a = sample_losses(gates, n, psi, H, 40, seed=3, batch=16)
+    b = sample_losses(gates, n, psi, H, 40, seed=3, batch=16, sector=True)
+    assert np.abs(a - b).max() < 1e-11
+    if n == 4:
+        m = [measure_loss_variance("su2", n, 16, 200, seed=8, sector=s)["variance"] for s in (False, True)]
+        assert m[0] == pytest.approx(m[1], rel=1e-10)
+    # the other S_z-conserving gates, on a random state with one qubit in |1⟩ and a random observable
+    mixed = [("exch", (0, n - 1)), ("rz", (1,)), ("sumzz", ()), ("exch", (1, 2)), ("rz", (n - 1,))]
+    sec1 = SzSector(n, 1)
+    phi = rng.normal(size=sec1.dim) + 1j * rng.normal(size=sec1.dim)
+    psi1 = sec1.embed(phi / np.linalg.norm(phi))
+    th = rng.uniform(0, 2 * np.pi, (4, len(mixed)))
+    full = run_circuit(mixed, n, th, psi1)
+    part = run_circuit_sector(mixed, SzSector.containing(psi1, n), th, sec1.restrict(psi1))
+    assert np.abs(full - sec1.embed(part)).max() < 1e-12
+    if n <= 6:
+        O = _random_hermitian(n, rng)
+        assert np.allclose(expectation(full, O), expectation(part, sec1.block(O)), atol=1e-10)
+
+
+def test_sz_sector_rejects_mixed_states_and_nonconserving_gates():
+    n = 4
+    sec = SzSector(n, 2)
+    assert np.array_equal(sec.swap_index(0, 3)[sec.swap_index(0, 3)], np.arange(sec.dim))   # SWAP is an involution
+    with pytest.raises(ValueError):
+        SzSector.containing(_random_state(n, np.random.default_rng(0)), n)
+    with pytest.raises(ValueError):
+        run_circuit_sector([("ry", (0,))], sec, np.zeros((1, 1)), np.ones(sec.dim) / math.sqrt(sec.dim))
+    psi, H, _ = default_setup("hea", n)
+    with pytest.raises(ValueError):
+        sample_losses(hardware_efficient_circuit(n, 1), n, psi, H, 4, seed=0, sector=True)
 
 
 def test_gsim_matches_statevector_and_schur_prediction():

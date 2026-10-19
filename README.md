@@ -5,7 +5,7 @@ Variational circuits built from symmetric generators, their dynamical Lie algebr
 [![CI](https://github.com/Jaspersands/geometric-qml-equivariance/actions/workflows/ci.yml/badge.svg)](https://github.com/Jaspersands/geometric-qml-equivariance/actions/workflows/ci.yml)
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
 
-For a deep circuit, the variance of the loss over random parameters is fixed by the Lie algebra that its gates generate [1, 2]. This package computes that prediction for three circuit families and measures the variance by sampling. The two agree within sampling error from 4 to 12 qubits, and to 24 qubits for the permutation-equivariant circuit, which can be simulated in its adjoint representation. The permutation-equivariant circuit's variance decays only polynomially, but up to 12 qubits the exchange circuit has the larger variance, each on its own loss; by the formula the order changes between 12 and 14 qubits. The permutation-equivariant circuit also cannot change the energy of a Heisenberg model, because its generators conserve that energy. The exchange circuit reaches the ground state, and its variance falls with the dimension of the singlet sector.
+For a deep circuit, the variance of the loss over random parameters is fixed by the Lie algebra that its gates generate [1, 2]. This package computes that prediction for three circuit families and measures the variance by sampling. The two agree within sampling error from 4 to 16 qubits, and to 24 qubits for the permutation-equivariant circuit, which can be simulated in its adjoint representation. The permutation-equivariant circuit's variance decays only polynomially, but up to 12 qubits the exchange circuit has the larger variance, each on its own loss. The formula puts the change of order between 12 and 14 qubits, and the measured variances at 14 and 16 qubits confirm it. The permutation-equivariant circuit also cannot change the energy of a Heisenberg model, because its generators conserve that energy. The exchange circuit reaches the ground state, and its variance falls with the dimension of the singlet sector.
 
 [Interactive page](https://qml.jaspersands.com/): an eight-qubit statevector simulator in the browser, with the sampling and Lie algebra closures running in a background worker.
 
@@ -34,7 +34,7 @@ Inputs and observables, chosen so that $O \in i\mathfrak g$:
 - hardware-efficient and SU(2)-equivariant: the singlet product state, and $O = \sum_i \sigma_i \cdot \sigma_{i+1}$ on the open chain (a sum of the exchange generators);
 - $S_N$-equivariant: the Néel state $|0101\dots\rangle$, and $O = \sum_{i<j} X_iX_j$ (the observable of [3]; a global rotation of the generator $\sum Z_kZ_l$). The singlet product state cannot be used here: it lies in the $S = 0$ block, where an $S_N$-symmetric circuit acts as a phase, so the loss is constant.
 
-Angles are drawn uniformly from $[0, 2\pi)$, 2000 parameter vectors per point. Measured means the sample variance of exact expectation values at those parameters; there is no shot noise. The circuits run as NumPy statevectors up to $N = 12$, and the $S_N$ circuit runs in its adjoint representation (g-sim [6]) at $N = 14$ to $24$.
+Angles are drawn uniformly from $[0, 2\pi)$, 2000 parameter vectors per point. Measured means the sample variance of exact expectation values at those parameters; there is no shot noise. The circuits run as NumPy statevectors up to $N = 12$. At $N = 14$ and $16$ the hardware-efficient circuit still runs on the full statevector, and the exchange circuit runs in the $S_z = 0$ sector: exchange gates conserve total $S_z$ and the singlet product input lies in that sector, so $\binom{N}{N/2}$ amplitudes suffice (12 870 at $N = 16$ instead of 65 536). The $S_N$ circuit runs in its adjoint representation (g-sim [6]) at $N = 14$ to $24$.
 
 ![Loss variance against the Lie-algebraic prediction](figures/variance_vs_theory.png)
 
@@ -47,18 +47,18 @@ The variance is divided by $\mathrm{Tr}\,O^2/2^N$, the observable's mean square,
 | 8 | 32 | 0.0817 | 0.0842 ± 0.0027 | 1.714 | 1.748 ± 0.056 | 32 | 0.2507 | 0.2573 ± 0.0078 |
 | 10 | 40 | 0.02634 | 0.02586 ± 0.00083 | 0.744 | 0.790 ± 0.025 | 32 | 0.3273 | 0.3289 ± 0.0098 |
 | 12 | 48 | 0.00805 | 0.00784 ± 0.00025 | 0.2871 | 0.2973 ± 0.0093 | 32 | 0.405 | 0.416 ± 0.013 |
-| 14 | | | | | | 32 | 0.485 | 0.490 ± 0.015 (g-sim) |
-| 16 | | | | | | 32 | 0.565 | 0.549 ± 0.017 (g-sim) |
+| 14 | 56 | 0.002380 | 0.002328 ± 0.000073 | 0.1030 | 0.1012 ± 0.0032 | 32 | 0.485 | 0.490 ± 0.015 (g-sim) |
+| 16 | 64 | 0.000687 | 0.000700 ± 0.000022 | 0.03522 | 0.03472 ± 0.00110 | 32 | 0.565 | 0.549 ± 0.017 (g-sim) |
 | 20 | | | | | | 32 | 0.727 | 0.761 ± 0.024 (g-sim) |
 | 24 | | | | | | 32 | 0.891 | 0.881 ± 0.028 (g-sim) |
 
-Errors are one standard error of the sample variance, from the fourth central moment. Over all 19 points, $\chi^2 = \sum z^2 = 14.2$ with $z$ = (measured − predicted)/error, a p-value of 0.77; the largest $|z|$ is 1.8. The five SU(2) points all lie above the prediction, which on its own would happen by chance about one time in 32. An 8000-sample rerun at $N = 6, 8, 10$ gives measured/predicted ratios of 1.018 ± 0.016, 1.003 ± 0.017 and 1.005 ± 0.016 at $L = 4N$, and 0.979, 0.993 and 1.000 at $L = 16N$, so there is no detectable depth bias at $L = 4N$. From $N = 14$ on, the $S_N$ points and the line both come from g-sim, so they share its inputs; the tests check g-sim against the statevector at $N = 14$ (they agree to within $5 \times 10^{-13}$) and its prediction against the Schur-basis route at $N = 14$.
+Errors are one standard error of the sample variance, from the fourth central moment. Over all 23 points, $\chi^2 = \sum z^2 = 15.6$ with $z$ = (measured − predicted)/error, a p-value of 0.87; the largest $|z|$ is 1.8. The five SU(2) points up to $N = 12$ all lie above the prediction, which on its own would happen by chance about one time in 32; the two at $N = 14$ and 16 lie below it ($z = -0.56$ and $-0.46$). An 8000-sample rerun at $N = 6, 8, 10$ gives measured/predicted ratios of 1.018 ± 0.016, 1.003 ± 0.017 and 1.005 ± 0.016 at $L = 4N$, and 0.979, 0.993 and 1.000 at $L = 16N$, so there is no detectable depth bias at $L = 4N$. At $N = 14$ and 16 a second exchange run at $L = 16N$ gives ratios of 0.966 ± 0.031 and 1.005 ± 0.031, against 0.982 ± 0.032 and 0.986 ± 0.031 at $L = 4N$. The mean is more sensitive to depth than the variance. At $N = 16$ and $L = 4N$ it is $-3.023 \pm 0.004$, 5.5 standard errors below the predicted $-3$; at $L = 16N$ it is $-3.001 \pm 0.004$. At 64 layers the circuit still remembers a little of its input, whose energy is $-24$; the variance shows no effect at its 3% resolution. The tests check the $S_z$-sector simulator against the full statevector at $N = 4$, 6 and 12: states agree to $10^{-12}$, and losses sampled with the same angles to $10^{-11}$. From $N = 14$ on, the $S_N$ points and the line both come from g-sim, so they share its inputs; the tests check g-sim against the statevector at $N = 14$ (they agree to within $5 \times 10^{-13}$) and its prediction against the Schur-basis route at $N = 14$.
 
 The formula is for the Haar ensemble on $e^{\mathfrak g}$. A circuit with independent random angles approaches that ensemble as its depth grows:
 
 ![Measured over predicted variance against depth](figures/depth_convergence.png)
 
-The scans were run at $N = 6$, 8 and 10 with $L = 1, 2, 4, \dots, 64$. The first depth within two standard errors of the prediction is $L$ = 8, 16, 16 for the hardware-efficient circuit and 8, 16, 32 for the exchange circuit, at most $3.2N$; the comparison above uses $L = 4N$ ($N = 12$ was not scanned). Shallower circuits have a larger variance, by a factor of 54 for a single hardware-efficient layer at $N = 10$. The $S_N$ circuit is within two standard errors from $L = 8$ at all three sizes, and the comparison uses $L = 32$.
+The scans were run at $N = 6$, 8 and 10 with $L = 1, 2, 4, \dots, 64$. The first depth within two standard errors of the prediction is $L$ = 8, 16, 16 for the hardware-efficient circuit and 8, 16, 32 for the exchange circuit, at most $3.2N$; the comparison above uses $L = 4N$ ($N = 12$ to 16 were not scanned). Shallower circuits have a larger variance, by a factor of 54 for a single hardware-efficient layer at $N = 10$. The $S_N$ circuit is within two standard errors from $L = 8$ at all three sizes, and the comparison uses $L = 32$.
 
 Two closed forms come out of the formula. With the singlet input only the $S = 0$ ideal $\mathfrak{su}(C_{N/2})$ contributes, and the prediction reduces to the Haar variance inside the singlet sector, $\mathrm{Var}_{\mathrm{spec}}(H_0)/(C_{N/2} + 1)$, where $H_0$ is $H$ restricted to that sector and $C_{N/2}$ is a Catalan number. The mean comes from the centre alone and equals $-3$ for every $N$. The tests also cover inputs and observables that reach several ideals at once: the Néel state for the exchange circuit, and a single bond $\sigma_1 \cdot \sigma_2$ as the observable with the singlet and Néel inputs ($N = 6$, $L = 24$, 4000 samples each). Run `geometric-qml variance-theory --ansatz su2 --qubits 8` to repeat one comparison.
 
@@ -72,14 +72,16 @@ The three algebras give three scalings of the normalised variance at depth:
 - SU(2)-equivariant, $\dim\mathfrak g = \sum_S (m_S^2 - 1) + 1$ (1426 at $N = 8$): with the singlet input, $\mathrm{Var}_{\mathrm{spec}}(H_0)/(C_{N/2} + 1)$ divided by $3(N-1)$. It decays roughly as $1/C_{N/2}$, the inverse dimension of the singlet sector: still exponential, but slower;
 - $S_N$-equivariant, $\dim\mathfrak g = \binom{N+3}{3} - \lfloor N/2 \rfloor$ (161 at $N = 8$, 2913 at $N = 24$): it decays polynomially, roughly as $1/N$.
 
-Beyond $N = 12$ the hardware-efficient and SU(2) lines are the formula alone (dashed). The SU(2) line uses $\mathrm{Tr}_{S=0}X = \mathrm{Tr}_{S_z=0}X - \mathrm{Tr}_{S_z=1}X$ for SU(2)-invariant $X$, which holds because every multiplet with $S \ge 1$ has one state in each of the two sectors. Applied to $H$ and $H^2$ it needs only the $S_z$ sectors, $\binom{N}{N/2}$ states, and reaches $N = 24$; at $N \le 12$ it agrees with the Schur-basis prediction to $10^{-15}$.
+Beyond $N = 16$ the hardware-efficient and SU(2) lines are the formula alone (dashed). The SU(2) line uses $\mathrm{Tr}_{S=0}X = \mathrm{Tr}_{S_z=0}X - \mathrm{Tr}_{S_z=1}X$ for SU(2)-invariant $X$, which holds because every multiplet with $S \ge 1$ has one state in each of the two sectors. Applied to $H$ and $H^2$ it needs only the $S_z$ sectors, $\binom{N}{N/2}$ states, and reaches $N = 24$; at $N \le 12$ it agrees with the Schur-basis prediction to $10^{-15}$, and at $N = 14$ to $2 \times 10^{-15}$.
 
 | N | 4 | 8 | 12 | 14 | 16 | 20 | 24 |
 |---|---|---|---|---|---|---|---|
-| SU(2), singlet input, $O = H$ | 0.444 | 0.0816 | 0.0087 | 0.0026 | $7.8 \times 10^{-4}$ | $6.5 \times 10^{-5}$ | $5.2 \times 10^{-6}$ |
-| $S_N$, Néel input, $O = \sum X_iX_j$ | 0.0179 | 0.0090 | 0.0061 | 0.0053 | 0.0047 | 0.0038 | 0.0032 |
+| SU(2), singlet input, $O = H$: predicted | 0.444 | 0.0816 | 0.0087 | 0.0026 | $7.8 \times 10^{-4}$ | $6.5 \times 10^{-5}$ | $5.2 \times 10^{-6}$ |
+| measured | 0.445 ± 0.009 | 0.083 ± 0.003 | 0.0090 ± 0.0003 | 0.00260 ± 0.00008 | $(7.7 \pm 0.2) \times 10^{-4}$ | | |
+| $S_N$, Néel input, $O = \sum X_iX_j$: predicted | 0.0179 | 0.0090 | 0.0061 | 0.0053 | 0.0047 | 0.0038 | 0.0032 |
+| measured | 0.0176 ± 0.0005 | 0.0092 ± 0.0003 | 0.0063 ± 0.0002 | 0.0054 ± 0.0002 | 0.0046 ± 0.0001 | 0.0040 ± 0.0001 | 0.0032 ± 0.0001 |
 
-The two symmetric circuits are not scored on the same loss, so this is not a like-for-like comparison. Up to $N = 12$, where both are measured, the exchange circuit has the larger normalised variance. The two lines cross between $N = 12$ and $14$, and the $S_N$ circuit's advantage exists only beyond that, where the SU(2) value has not been measured.
+The two symmetric circuits are not scored on the same loss, so this is not a like-for-like comparison. Up to $N = 12$ the exchange circuit has the larger normalised variance. At $N = 14$ and 16 the measured order is reversed, as the formula predicts: the $S_N$ circuit's normalised variance is larger by factors of 2.1 and 5.9, with the two values more than ten standard errors apart at both sizes. The crossover therefore lies between 12 and 14 qubits, where the formula puts it; with even $N$ only, it cannot be placed more finely. Beyond 16 qubits the SU(2) values are the formula alone.
 
 Expressivity is tested on a third loss, the Heisenberg energy. A ground-state search for the eight-qubit model, $H = \sum_{\langle ij\rangle} \sigma_i \cdot \sigma_j$, with at most 112 parameters per circuit, starts every circuit from the singlet product state ($E = -12$) and keeps the best of four L-BFGS runs:
 
@@ -117,7 +119,7 @@ The closure is computed efficiently in two ways. Because the algebra is spanned 
 | `ansatz` | Equivariant (exchange), hardware-efficient, QAOA and $S_N$-equivariant circuits, each with a PennyLane circuit, its generators and a NumPy unitary |
 | `dla` | Lie algebra closure (generator-frontier algorithm, batched orthonormalisation, and an exact closure mod $p$ for the $S_N$ circuit), the SU(2)- and $S_N$-reduced representations, both closed-form dimensions |
 | `variance_theory` | 𝔤-purities from a dense DLA basis or from the Schur blocks, the deep-circuit prediction of mean and variance, the singlet-input prediction from $S_z$-sector traces, sampled variances with standard errors, depth scans |
-| `statevector` | NumPy statevector simulation of the circuit families, batched over parameter samples, with adjoint gradients |
+| `statevector` | NumPy statevector simulation of the circuit families, batched over parameter samples, with adjoint gradients; exchange circuits inside one $S_z$ sector |
 | `gsim` | Simulation in the adjoint representation for observables inside the DLA; the $S_N$ circuit at any $N$ |
 | `expressivity` | Ground-state searches at a fixed parameter budget; the energy-invariance check for the $S_N$ circuit |
 | `barren_plateau` | Gradient variance at random parameters and its scaling with $N$ (PennyLane), at fixed depth or depth $L = N$ |
@@ -172,13 +174,14 @@ geometric-qml dla --ansatz sn --qubits 10
 geometric-qml sectors --qubits 8
 python benchmarks/make_figures.py                         # figures/ and figures/results.json, about ten minutes
 python benchmarks/make_figures.py --plot-only             # redraw; --lines recomputes the prediction lines, --recheck adds the 8000-sample rerun
+python benchmarks/make_figures.py --extend                # N = 14 and 16 for the exchange and hardware-efficient circuits, under an hour
 ```
 
 ## Limitations
 
-- Sizes are small: statevectors up to 12 qubits for all three circuits, and 24 qubits for the $S_N$ circuit through g-sim. Beyond 12 qubits the hardware-efficient and SU(2) lines are the formula, not measurements, and so is the crossover between the SU(2) and $S_N$ lines.
+- Sizes are small: statevectors up to 16 qubits for the hardware-efficient and exchange circuits (the exchange circuit in its $S_z = 0$ sector at 14 and 16), up to 12 for the $S_N$ circuit, and 24 qubits for the $S_N$ circuit through g-sim. Beyond 16 qubits the hardware-efficient and SU(2) lines are the formula, not measurements. The crossover between the SU(2) and $S_N$ lines is measured on both sides, but only on the even-$N$ grid.
 - The trainability comparison uses a different loss for each symmetric circuit (singlet input and $H$ for the exchange circuit, Néel input and $\sum X_iX_j$ for the $S_N$ circuit), and the expressivity test uses a third.
-- The prediction is for the Haar ensemble on $e^{\mathfrak g}$. It describes a circuit with independent uniform angles only once the circuit is deep enough, here $L = 4N$ (32 layers for $S_N$). Shallow circuits, correlated or shared angles, and small-angle initialisations are not covered. The weight-shared circuit in `barren_plateau` is not compared with the formula.
+- The prediction is for the Haar ensemble on $e^{\mathfrak g}$. It describes a circuit with independent uniform angles only once the circuit is deep enough, here $L = 4N$ (32 layers for $S_N$). At 16 qubits $4N$ layers are enough for the exchange circuit's variance but not quite for its mean, which is 5.5 standard errors from the deep value at $L = 4N$ and within one at $16N$. Shallow circuits, correlated or shared angles, and small-angle initialisations are not covered. The weight-shared circuit in `barren_plateau` is not compared with the formula.
 - The formula needs $O \in i\mathfrak g$ or $\rho \in i\mathfrak g$. It has been checked for the singlet product and Néel states, with the open-chain Heisenberg Hamiltonian and a single bond as observables for the exchange circuit, and $\sum_{i<j} X_iX_j$ for the $S_N$ circuit. It does not apply to the chain Hamiltonian under the $S_N$ circuit, where neither condition holds.
 - This is the variance of the loss, not of its gradient.
 - The expressivity numbers come from one optimiser (L-BFGS, best of four random starts) at one budget. They show what that search reached, not what each circuit could reach in principle. The exception is the $S_N$ result, which follows from the symmetry. The four hardware-efficient runs on the chain stopped at the iteration cap of 2000; with a cap of 10 000 three of them converge and the best error moves from 0.012859 to 0.012851. The ring runs are unchanged.
@@ -194,7 +197,7 @@ python benchmarks/make_figures.py --plot-only             # redraw; --lines reco
 
 ```bash
 pip install -e ".[dev]"
-pytest                                             # 96 tests, about 50 s; -m "not slow" skips the four longer ones (about 25 s)
+pytest                                             # 100 tests, about 55 s; -m "not slow" skips the four longer ones (about 30 s)
 python benchmarks/make_figures.py
 ```
 

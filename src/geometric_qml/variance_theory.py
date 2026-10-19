@@ -496,15 +496,19 @@ def default_setup(kind: str, n_qubits: int) -> Tuple[np.ndarray, Operator, str]:
 
 
 def measure_loss_variance(kind: str, n_qubits: int, depth: int, n_samples: int = 2000, seed: int = 0,
-                          psi0: Optional[np.ndarray] = None, obs: Optional[Operator] = None) -> Dict[str, Any]:
-    """Sample ℓ(θ) at uniformly random angles and return mean, variance and standard errors."""
+                          psi0: Optional[np.ndarray] = None, obs: Optional[Operator] = None,
+                          sector: bool = False) -> Dict[str, Any]:
+    """
+    Sample ℓ(θ) at uniformly random angles and return mean, variance and standard errors.
+    ``sector=True`` runs an exchange circuit inside the S_z sector of ψ₀ (same angles, same values).
+    """
     from .statevector import sample_losses
 
     if psi0 is None or obs is None:
         p, o, _ = default_setup(kind, n_qubits)
         psi0 = p if psi0 is None else psi0
         obs = o if obs is None else obs
-    x = sample_losses(circuit_for(kind, n_qubits, depth), n_qubits, psi0, obs, n_samples, seed=seed)
+    x = sample_losses(circuit_for(kind, n_qubits, depth), n_qubits, psi0, obs, n_samples, seed=seed, sector=sector)
     var, se = variance_with_error(x)
     return {"variance": var, "variance_se": se, "mean": float(x.mean()), "mean_se": float(x.std(ddof=1) / math.sqrt(x.size)),
             "n_samples": int(x.size), "depth": int(depth), "samples": x}

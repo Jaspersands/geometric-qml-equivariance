@@ -624,9 +624,9 @@
   }
  ],
  "agreement_all": {
-  "chi2": 14.192197178936876,
-  "dof": 19,
-  "p_value": 0.7723740979687822,
+  "chi2": 15.638040596944492,
+  "dof": 23,
+  "p_value": 0.8703203032171569,
   "max_abs_z": 1.816339676414747
  },
  "prediction_lines": {
@@ -881,5 +881,120 @@
    "p_value": 0.7441032684341311,
    "max_abs_z": 1.362974165541386
   }
+ },
+ "extended": {
+  "rows": [
+   {
+    "kind": "hea",
+    "n_qubits": 14,
+    "depth": 56,
+    "predicted": 0.002380225816295392,
+    "predicted_mean": 0.0,
+    "measured": 0.0023275167707203868,
+    "measured_se": 7.275469149889044e-05,
+    "measured_mean": 0.0010376348379327954,
+    "measured_mean_se": 0.0010787763370412762,
+    "z": -0.7244762432373061,
+    "obs_scale": 39.0,
+    "n_samples": 2000,
+    "seed": 14001,
+    "setup": "singlet product, O = \u03a3 \u03c3_i\u00b7\u03c3_{i+1} (open chain)",
+    "method": "full statevector"
+   },
+   {
+    "kind": "hea",
+    "n_qubits": 16,
+    "depth": 64,
+    "predicted": 0.0006866350305934053,
+    "predicted_mean": 0.0,
+    "measured": 0.000700250197103416,
+    "measured_se": 2.1503387324604675e-05,
+    "measured_mean": 0.00022925844132812645,
+    "measured_mean_se": 0.0005917136964374815,
+    "z": 0.6331638036595227,
+    "obs_scale": 45.0,
+    "n_samples": 2000,
+    "seed": 16001,
+    "setup": "singlet product, O = \u03a3 \u03c3_i\u00b7\u03c3_{i+1} (open chain)",
+    "method": "full statevector"
+   },
+   {
+    "kind": "su2",
+    "n_qubits": 14,
+    "depth": 56,
+    "predicted": 0.10304114490161001,
+    "predicted_mean": -3.0,
+    "measured": 0.10122687209371665,
+    "measured_se": 0.0032495958370432655,
+    "measured_mean": -3.001645381878311,
+    "measured_mean_se": 0.00711431205717449,
+    "z": -0.5583072169196651,
+    "obs_scale": 39.0,
+    "n_samples": 2000,
+    "seed": 14002,
+    "setup": "singlet product, O = \u03a3 \u03c3_i\u00b7\u03c3_{i+1} (open chain)",
+    "method": "S_z = 0 sector"
+   },
+   {
+    "kind": "su2",
+    "n_qubits": 16,
+    "depth": 64,
+    "predicted": 0.03522012578616352,
+    "predicted_mean": -3.0,
+    "measured": 0.034723760052981584,
+    "measured_se": 0.0010873760856638002,
+    "measured_mean": -3.0229698431108063,
+    "measured_mean_se": 0.004166758935490604,
+    "z": -0.45648027368463384,
+    "obs_scale": 45.0,
+    "n_samples": 2000,
+    "seed": 16002,
+    "setup": "singlet product, O = \u03a3 \u03c3_i\u00b7\u03c3_{i+1} (open chain)",
+    "method": "S_z = 0 sector"
+   }
+  ],
+  "agreement": {
+   "chi2": 1.4458434180076152,
+   "dof": 4,
+   "p_value": 0.8361893542399216,
+   "max_abs_z": 0.7244762432373061
+  },
+  "depth_check": [
+   {
+    "kind": "su2",
+    "n_qubits": 14,
+    "depth": 224,
+    "predicted": 0.10304114490161001,
+    "predicted_mean": -3.0,
+    "measured": 0.09956753465451881,
+    "measured_se": 0.003228571031963115,
+    "measured_mean": -3.0071139420222344,
+    "measured_mean_se": 0.0070557612861589505,
+    "z": -1.0758971113542721,
+    "obs_scale": 39.0,
+    "n_samples": 2000,
+    "seed": 1458,
+    "setup": "singlet product, O = \u03a3 \u03c3_i\u00b7\u03c3_{i+1} (open chain)",
+    "method": "S_z = 0 sector"
+   },
+   {
+    "kind": "su2",
+    "n_qubits": 16,
+    "depth": 256,
+    "predicted": 0.03522012578616352,
+    "predicted_mean": -3.0,
+    "measured": 0.03540464273539526,
+    "measured_se": 0.00110267223567478,
+    "measured_mean": -3.000947520200016,
+    "measured_mean_se": 0.004207412669051804,
+    "z": 0.16733617049750274,
+    "obs_scale": 45.0,
+    "n_samples": 2000,
+    "seed": 1490,
+    "setup": "singlet product, O = \u03a3 \u03c3_i\u00b7\u03c3_{i+1} (open chain)",
+    "method": "S_z = 0 sector"
+   }
+  ],
+  "workers": 5
  }
 }
